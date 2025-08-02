@@ -267,12 +267,12 @@ async def get_user_settings(user_id: int) -> Optional[Dict]:
         }
 
 
-async def update_user_settings(user_id: int, settings: Dict):
+async def update_user_settings(user_id: int, **kwargs):
     """Обновление настроек пользователя."""
     pool = await get_pool()
     async with pool.acquire() as connection:
-        set_clause = ", ".join([f"{key} = ${i+2}" for i, key in enumerate(settings.keys())])
-        await connection.execute(f"UPDATE user_settings SET {set_clause} WHERE user_id = $1", user_id, *settings.values())
+        set_clause = ", ".join([f"{key} = ${i+2}" for i, key in enumerate(kwargs.keys())])
+        await connection.execute(f"UPDATE user_settings SET {set_clause} WHERE user_id = $1", user_id, *kwargs.values())
 
 async def get_all_tickers() -> List[str]:
     """Получение списка всех уникальных тикеров из портфелей."""
