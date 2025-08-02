@@ -730,8 +730,50 @@ async def cmd_settings(message: Message):
 @router.callback_query(F.data == "portfolio")
 async def show_portfolio_callback(callback: CallbackQuery):
     """Показать портфель через callback"""
-    await cmd_portfolio(callback.message)
-    await callback.answer()
+    # Исправлено: передаем user_id напрямую
+    try:
+        await callback.answer("📊 Получаю актуальные данные портфеля...")
+        portfolio = await get_user_portfolio(callback.from_user.id)
+        if not portfolio:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💡 Получить идеи", callback_data="get_ideas")]
+            ])
+            await callback.message.answer("💼 Ваш портфель пуст\n\nНачните инвестировать!", reply_markup=keyboard)
+            return
+        from market_data import market_data
+        tickers = [pos['ticker'] for pos in portfolio]
+        current_prices = await market_data.get_multiple_moex_prices(tickers)
+        portfolio_text = "💼 *Ваш портфель:*\n\n"
+        total_value = 0
+        total_invested = 0
+        for position in portfolio:
+            ticker = position['ticker']
+            quantity = position['quantity']
+            avg_price = position['avg_price']
+            current_price = current_prices.get(ticker, position.get('current_price', avg_price))
+            current_value = quantity * current_price
+            invested_value = quantity * avg_price
+            profit_loss = current_value - invested_value
+            profit_percent = (profit_loss / invested_value * 100) if invested_value > 0 else 0
+            profit_emoji = "📈" if profit_loss >= 0 else "📉"
+            profit_sign = "+" if profit_loss >= 0 else ""
+            portfolio_text += f"📈 *{ticker}*: {quantity} шт.\n"
+            portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
+            portfolio_text += f"� Текущая цена: {current_price:.2f} ₽\n"
+            portfolio_text += f"💎 Стоимость: {current_value:.2f} ₽\n"
+            portfolio_text += f"{profit_emoji} P&L: {profit_sign}{profit_loss:.2f} ₽ ({profit_sign}{profit_percent:.1f}%)\n\n"
+            total_value += current_value
+            total_invested += invested_value
+        if total_invested > 0:
+            total_profit = total_value - total_invested
+            total_percent = (total_profit / total_invested * 100)
+            total_emoji = "📈" if total_profit >= 0 else "📉"
+            total_sign = "+" if total_profit >= 0 else ""
+            portfolio_text += f"\n{total_emoji} *Общий P&L:* {total_sign}{total_profit:.2f} ₽ ({total_sign}{total_percent:.1f}%)"
+        await callback.message.answer(portfolio_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Ошибка при получении портфеля через callback: {e}")
+        await callback.message.answer("❌ Ошибка при получении портфеля")
 
 @router.callback_query(F.data == "get_ideas")
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
@@ -745,7 +787,22 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
 async def show_history_callback(callback: CallbackQuery):
     """Показать историю через callback"""
     await callback.answer("📊 Загружаю историю...")
-    await cmd_history(callback.message)
+    try:
+        history = await get_order_history(callback.from_user.id)
+        if not history:
+            await callback.message.answer("📊 История операций пуста")
+            return
+        history_text = "📊 *История операций:*\n\n"
+        for order in history[-10:]:
+            history_text += f"📅 {order['date']}\n"
+            history_text += f"📈 {order['ticker']}: {order['quantity']} шт.\n"
+            history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
+            history_text += f"📊 Операция: {order['order_type']}\n"
+            history_text += f"💎 Сумма: {order['total_amount']:.2f} ₽\n\n"
+        await callback.message.answer(history_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Ошибка при получении истории через callback: {e}")
+        await callback.message.answer("❌ Ошибка при получении истории операций")
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
