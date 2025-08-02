@@ -150,6 +150,22 @@ async def cmd_ideas(message: Message, state: FSMContext):
 
         if not ideas:
             await message.answer("❌ Не удалось получить рекомендации для теста")
+            return
+
+        # Формируем сообщение с идеями
+        ideas_text = "🎯 *Инвестиционные идеи от xAI Grok:*\n\n"
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей
+            ideas_text += f"*{i}. {idea.get('symbol', 'N/A')}*\n"
+            ideas_text += f"💰 Цена: ${idea.get('price', 'N/A')}\n"
+            ideas_text += f"📈 Прогноз: {idea.get('target_price', 'N/A')}\n"
+            ideas_text += f"📊 Рейтинг: {idea.get('rating', 'N/A')}\n"
+            ideas_text += f"💡 {idea.get('reasoning', 'Нет описания')}\n\n"
+
+        await message.answer(ideas_text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении инвестиционных идей: {e}")
+        await message.answer("❌ Ошибка при получении инвестиционных идей")
 
 @router.callback_query(F.data == "notification_settings")
 async def show_notification_settings(callback: CallbackQuery):
@@ -266,44 +282,8 @@ async def toggle_price_updates(callback: CallbackQuery):
     await show_notification_settings(callback)
 
 def register_handlers(dp):
-            return
-
-        ideas_text = f"🚀 *Инвестиционные идеи от xAI Grok:*\n"
-        ideas_text += f"💰 Бюджет: {settings['max_investment_amount']:,.0f} ₽\n"
-        ideas_text += f"🎯 Риск: {settings['risk_level']}\n\n"
-
-        for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 5 идей
-            current_price = idea.get('price', 0)
-            target_price = idea.get('target_price', 0)
-            timeframe = idea.get('target_timeframe', 'средний срок')
-
-            # Рассчитываем потенциальную доходность
-            if current_price > 0 and target_price > 0:
-                potential_return = ((target_price - current_price) / current_price) * 100
-                return_emoji = "📈" if potential_return > 0 else "📉"
-                return_text = f"{return_emoji} Потенциал: {potential_return:+.1f}%"
-            else:
-                return_text = "⚠️ Цели нет"
-
-            ideas_text += f"*{i}. {idea['ticker']}*\n"
-            ideas_text += f"📊 Рекомендация: {idea['action']}\n"
-            ideas_text += f"💰 Текущая цена: {current_price:.2f} ₽\n"
-            ideas_text += f"🎯 Целевая цена: {target_price:.2f} ₽ ({timeframe})\n"
-            ideas_text += f"{return_text}\n"
-            ideas_text += f"📝 {idea['reasoning']}\n\n"
-
-        # Клавиатура для выбора идеи
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"📈 {idea['ticker']}", callback_data=f"select_idea_{i}")]
-            for i, idea in enumerate(ideas[:15])
-        ])
-
-        await message.answer(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
-        await state.update_data(investment_ideas=ideas)
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении идей: {e}")
-        await message.answer("❌ Ошибка при получении инвестиционных идей")
+    """Регистрация всех обработчиков"""
+    dp.include_router(router)
 
 @router.callback_query(F.data.startswith("select_idea_"))
 async def process_idea_selection(callback: CallbackQuery, state: FSMContext):
