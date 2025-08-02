@@ -1,21 +1,17 @@
 [Unit]
-Description=Invest Bot - Telegram Investment Bot
+Description=Investment Telegram Bot
 After=network.target
-Wants=network.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/root/invest-bot
-Environment=PATH=/usr/bin:/usr/local/bin
-ExecStart=/usr/bin/python3 /root/invest-bot/main.py
+Environment=PATH=/root/invest-bot/venv/bin
+ExecStart=/root/invest-bot/venv/bin/python main.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-
-# Настройки для логирования
-SyslogIdentifier=invest-bot
 
 [Install]
 WantedBy=multi-user.target
