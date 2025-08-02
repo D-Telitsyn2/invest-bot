@@ -46,24 +46,39 @@ class RealMarketData:
         """Получение актуальной цены с MOEX API"""
         try:
             session = await self.get_session()
-            # Используем более надежный эндпоинт для получения цен
-            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,LAST,PREVPRICE,CHANGE,CHANGEPRCNT"
+            # Используем marketdata эндпоинт для получения актуальных торговых данных
+            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}.json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=SECID,LAST,OPEN,HIGH,LOW,CLOSEPRICE,UPDATETIME,TRADINGSTATUS&securities.columns=SECID,PREVPRICE,PREVDATE"
 
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    securities_data = data.get('securities', {}).get('data', [])
-                    if securities_data and len(securities_data) > 0:
-                        row = securities_data[0]
+
+                    # Пытаемся получить текущую цену из marketdata
+                    marketdata = data.get('marketdata', {}).get('data', [])
+                    if marketdata and len(marketdata) > 0:
+                        row = marketdata[0]
                         # row[1] = LAST (последняя цена)
                         if len(row) > 1 and row[1] is not None:
                             price = float(row[1])
-                            logger.info(f"✅ Получена актуальная цена {ticker}: {price} ₽")
+                            update_time = row[6] if len(row) > 6 else "неизвестно"
+                            trading_status = row[7] if len(row) > 7 else "неизвестно"
+                            logger.info(f"✅ Получена цена {ticker}: {price} ₽ (обновлено: {update_time}, статус: {trading_status})")
                             return price
-                        # Если LAST нет, берем PREVPRICE
-                        elif len(row) > 2 and row[2] is not None:
-                            price = float(row[2])
+
+                        # Если LAST нет, берем CLOSEPRICE (цена закрытия)
+                        elif len(row) > 5 and row[5] is not None:
+                            price = float(row[5])
                             logger.info(f"⚠️ Получена цена закрытия {ticker}: {price} ₽")
+                            return price
+
+                    # Если marketdata не дал результат, берем из securities (цена предыдущего дня)
+                    securities_data = data.get('securities', {}).get('data', [])
+                    if securities_data and len(securities_data) > 0:
+                        row = securities_data[0]
+                        if len(row) > 1 and row[1] is not None:
+                            price = float(row[1])
+                            prev_date = row[2] if len(row) > 2 else "неизвестно"
+                            logger.info(f"📊 Получена цена предыдущего дня {ticker}: {price} ₽ (дата: {prev_date})")
                             return price
                 else:
                     logger.warning(f"Ошибка MOEX API {response.status} для {ticker}")
@@ -94,20 +109,81 @@ class RealMarketData:
             logger.error(f"Ошибка при получении множественных цен: {e}")
             return {}
 
-    async def get_realistic_price(self, ticker: str) -> Optional[float]:
-        """Получение реалистичной цены только с MOEX API"""
-        # Пытаемся получить реальную цену
-        real_price = await self.get_moex_price(ticker)
-        if real_price:
-            return real_price
+    async def get_moex_price_with_info(self, ticker: str) -> Dict:
+        """Получение цены с дополнительной информацией о времени и статусе торгов"""
+        try:
+            session = await self.get_session()
+            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}.json?iss.meta=off&iss.only=marketdata,securities&marketdata.columns=SECID,LAST,OPEN,HIGH,LOW,CLOSEPRICE,UPDATETIME,TRADINGSTATUS&securities.columns=SECID,PREVPRICE,PREVDATE"
 
-        # Если не получилось, возвращаем None
-        # AI будет использовать свои актуальные данные
-        return None
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    result = {"ticker": ticker, "price": None, "status": "unknown", "update_time": None, "is_current": False}
+
+                    # Проверяем marketdata
+                    marketdata = data.get('marketdata', {}).get('data', [])
+                    if marketdata and len(marketdata) > 0:
+                        row = marketdata[0]
+                        if len(row) > 1 and row[1] is not None:
+                            result["price"] = float(row[1])
+                            result["update_time"] = row[6] if len(row) > 6 else None
+                            result["trading_status"] = row[7] if len(row) > 7 else None
+                            result["is_current"] = True
+                            result["status"] = "live"
+                            return result
+                        elif len(row) > 5 and row[5] is not None:
+                            result["price"] = float(row[5])
+                            result["status"] = "close_price"
+                            return result
+
+                    # Fallback к securities
+                    securities_data = data.get('securities', {}).get('data', [])
+                    if securities_data and len(securities_data) > 0:
+                        row = securities_data[0]
+                        if len(row) > 1 and row[1] is not None:
+                            result["price"] = float(row[1])
+                            result["update_time"] = row[2] if len(row) > 2 else None
+                            result["status"] = "prev_day"
+                            return result
+
+                    return result
+                else:
+                    return {"ticker": ticker, "price": None, "status": "api_error", "update_time": None, "is_current": False}
+
+        except Exception as e:
+            logger.warning(f"Ошибка получения информации о цене {ticker}: {e}")
+            return {"ticker": ticker, "price": None, "status": "error", "update_time": None, "is_current": False}
 
     def get_sectors_info(self) -> dict:
         """Получение информации о секторах для AI"""
         return self.sectors_info
+
+    def is_trading_hours(self) -> bool:
+        """Проверка, идут ли сейчас торги на MOEX"""
+        from datetime import datetime, time
+
+        try:
+            # Используем UTC+3 (московское время)
+            now = datetime.now()
+            current_time = now.time()
+            weekday = now.weekday()  # 0 = понедельник, 6 = воскресенье
+
+            if weekday >= 5:  # выходные
+                return False
+
+            # Основные торги 10:00-18:40 (по московскому времени)
+            if time(10, 0) <= current_time <= time(18, 40):
+                return True
+
+            # Вечерние торги 19:05-23:50
+            if time(19, 5) <= current_time <= time(23, 50):
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"Ошибка проверки времени торгов: {e}")
+            return False
 
 # Глобальный экземпляр
 market_data = RealMarketData()
