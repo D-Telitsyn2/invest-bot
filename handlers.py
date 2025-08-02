@@ -104,7 +104,7 @@ async def cmd_portfolio(message: Message):
             profit_emoji = "📈" if profit_loss >= 0 else "📉"
             profit_sign = "+" if profit_loss >= 0 else ""
 
-            portfolio_text += f"📈 *{ticker}*: {quantity} шт.\n"
+            portfolio_text += f"📈 `{ticker}`: {quantity} шт.\n"
             portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
             portfolio_text += f"💵 Текущая цена: {current_price:.2f} ₽\n"
 
@@ -168,7 +168,7 @@ async def cmd_target_price(message: Message, state: FSMContext):
             current_price = pos.get('current_price', pos['avg_price'])
             target_price = pos.get('target_price', 0)
 
-            target_text += f"{i}. *{ticker}*\n"
+            target_text += f"{i}. `{ticker}`\n"
             target_text += f"   💰 Текущая: {current_price:.2f} ₽\n"
 
             if target_price > 0:
@@ -432,7 +432,7 @@ async def set_target_price(message: Message):
         position = next((p for p in portfolio if p['ticker'] == ticker), None)
 
         if not position:
-            await message.answer(f"❌ Позиция *{ticker}* не найдена в вашем портфеле.\nСначала добавьте её через /ideas", parse_mode="Markdown")
+            await message.answer(f"❌ Позиция `{ticker}` не найдена в вашем портфеле.\nСначала добавьте её через /ideas", parse_mode="Markdown")
             return
 
         # Устанавливаем целевую цену
@@ -450,7 +450,7 @@ async def set_target_price(message: Message):
         profit_amount = (target_price - avg_price) * quantity
 
         success_text = f"✅ *Целевая цена установлена!*\n\n"
-        success_text += f"📊 *{ticker}*\n"
+        success_text += f"📊 `{ticker}`\n"
         success_text += f"💰 Ваша цена: {avg_price:.2f} ₽\n"
         success_text += f"💵 Текущая: {current_price:.2f} ₽\n"
         success_text += f"🎯 Целевая: {target_price:.2f} ₽\n\n"
@@ -634,7 +634,7 @@ async def confirm_trade(callback: CallbackQuery, state: FSMContext):
         if success:
             await callback.message.edit_text(
                 f"✅ *Сделка выполнена!*\n\n"
-                f"📈 Тикер: *{selected_idea['ticker']}*\n"
+                f"📈 Тикер: `{selected_idea['ticker']}`\n"
                 f"📊 Операция: *{selected_idea['action']}*\n"
                 f"🔢 Количество: *{quantity} шт.*\n"
                 f"💰 Цена: *{selected_idea['price']:.2f} ₽*\n"
@@ -779,7 +779,7 @@ async def confirm_sell_auto_price(callback: CallbackQuery, state: FSMContext):
         confirmation_text = f"""
 ✅ *Подтверждение продажи:*
 
-📉 Продать: *{ticker}*
+📉 Продать: `{ticker}`
 🔢 Количество: *{sell_quantity} шт.*
 💰 Цена продажи: *{current_price:.2f} ₽*
 💎 Получите: *{total_amount:.2f} ₽*
@@ -844,7 +844,7 @@ async def process_custom_sell_price(message: Message, state: FSMContext):
             confirmation_text = f"""
 ✅ *Подтверждение продажи:*
 
-📉 Продать: *{ticker}*
+📉 Продать: `{ticker}`
 🔢 Количество: *{sell_quantity} шт.*
 💰 Цена продажи: *{custom_price:.2f} ₽*
 💎 Получите: *{total_amount:.2f} ₽*
@@ -917,7 +917,7 @@ async def final_sell_confirmation(callback: CallbackQuery, state: FSMContext):
         if success:
             await callback.message.edit_text(
                 f"✅ *Продажа выполнена!*\n\n"
-                f"📉 Продано: *{ticker}*\n"
+                f"📉 Продано: `{ticker}`\n"
                 f"🔢 Количество: *{sell_quantity} шт.*\n"
                 f"💰 Цена: *{sell_price:.2f} ₽*\n"
                 f"💎 Получено: *{total_amount:.2f} ₽*",
@@ -1077,7 +1077,7 @@ async def show_portfolio_callback(callback: CallbackQuery):
             profit_percent = (profit_loss / invested_value * 100) if invested_value > 0 else 0
             profit_emoji = "📈" if profit_loss >= 0 else "📉"
             profit_sign = "+" if profit_loss >= 0 else ""
-            portfolio_text += f"📈 *{ticker}*: {quantity} шт.\n"
+            portfolio_text += f"📈 `{ticker}`: {quantity} шт.\n"
             portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
             portfolio_text += f"� Текущая цена: {current_price:.2f} ₽\n"
             portfolio_text += f"💎 Стоимость: {current_value:.2f} ₽\n"
@@ -1117,7 +1117,7 @@ async def show_target_prices(callback: CallbackQuery):
             target_price = pos.get('target_price', 0)
             avg_price = pos['avg_price']
 
-            target_text += f"{i}. *{ticker}*\n"
+            target_text += f"{i}. `{ticker}`\n"
             target_text += f"   💰 Ваша цена: {avg_price:.2f} ₽\n"
             target_text += f"   💵 Текущая: {current_price:.2f} ₽\n"
 
@@ -1617,7 +1617,7 @@ async def test_notifications(message: Message):
             target_price = idea.get('target_price', 0)
             potential_return = ((target_price - current_price) / current_price * 100) if current_price > 0 else 0
 
-            test_message += f"*{i}. {idea['ticker']}*\n"
+            test_message += f"*{i}.* `{idea['ticker']}`\n"
             test_message += f"💰 Цена: {current_price:.2f} ₽ → 🎯 {target_price:.2f} ₽\n"
             test_message += f"📊 Потенциал: +{potential_return:.1f}%\n"
             test_message += f"📝 {idea['reasoning'][:100]}...\n\n"

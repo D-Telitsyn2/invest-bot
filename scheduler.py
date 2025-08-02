@@ -180,7 +180,7 @@ class SchedulerService:
 
                     for change in significant_changes:
                         emoji = "📈" if change['change_percent'] > 0 else "📉"
-                        message += f"{emoji} *{change['ticker']}*\n"
+                        message += f"{emoji} `{change['ticker']}`\n"
                         message += f"💰 {change['old_price']:.2f} ₽ → {change['new_price']:.2f} ₽\n"
                         message += f"📊 Изменение: {change['change_percent']:+.1f}%\n"
 
@@ -255,7 +255,7 @@ class SchedulerService:
                             target_price = idea.get('target_price', 0)
                             potential_return = ((target_price - current_price) / current_price * 100) if current_price > 0 else 0
 
-                            message += f"*{i}. {idea['ticker']}*\n"
+                            message += f"*{i}.* `{idea['ticker']}`\n"
                             message += f"💰 Цена: {current_price:.2f} ₽ → 🎯 {target_price:.2f} ₽\n"
                             message += f"📊 Потенциал: +{potential_return:.1f}%\n"
                             message += f"📝 {idea['reasoning'][:100]}...\n\n"
@@ -341,7 +341,7 @@ class SchedulerService:
                     sorted_positions = sorted(portfolio, key=lambda x: x['return_pct'], reverse=True)
 
                     for i, pos in enumerate(sorted_positions[:5], 1):
-                        message += f"{i}. *{pos['ticker']}*: {pos['return_pct']:+.1f}% "
+                        message += f"{i}. `{pos['ticker']}`: {pos['return_pct']:+.1f}% "
                         message += f"({pos['unrealized_pnl']:+,.0f} ₽)\n"
 
                     message += f"\n_Полная статистика в боте: /portfolio_"
@@ -408,7 +408,7 @@ class SchedulerService:
                     message = "🎯 *Целевые цены достигнуты!*\n\n"
 
                     for target in achieved_targets:
-                        message += f"*{target['ticker']}*\n"
+                        message += f"`{target['ticker']}`\n"
                         message += f"🎯 Целевая цена: {target['target_price']:.2f} ₽\n"
                         message += f"💰 Текущая цена: {target['current_price']:.2f} ₽\n"
                         message += f"📈 Ваша прибыль: {target['unrealized_pnl']:+,.0f} ₽ ({target['return_pct']:+.1f}%)\n\n"
