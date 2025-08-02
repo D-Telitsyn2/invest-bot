@@ -43,26 +43,56 @@ class RealMarketData:
             self.session = None
 
     async def get_moex_price(self, ticker: str) -> Optional[float]:
-        """Получение цены с MOEX API"""
+        """Получение актуальной цены с MOEX API"""
         try:
             session = await self.get_session()
-            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}.json"
+            # Используем более надежный эндпоинт для получения цен
+            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}.json?iss.meta=off&iss.only=securities&securities.columns=SECID,LAST,PREVPRICE,CHANGE,CHANGEPRCNT"
 
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    # Парсим ответ MOEX
-                    securities = data.get('securities', {}).get('data', [])
-                    if securities:
-                        # Ищем текущую цену
-                        for row in securities:
-                            if len(row) > 3 and row[3] is not None:  # LAST цена
-                                return float(row[3])
+                    securities_data = data.get('securities', {}).get('data', [])
+                    if securities_data and len(securities_data) > 0:
+                        row = securities_data[0]
+                        # row[1] = LAST (последняя цена)
+                        if len(row) > 1 and row[1] is not None:
+                            price = float(row[1])
+                            logger.info(f"✅ Получена актуальная цена {ticker}: {price} ₽")
+                            return price
+                        # Если LAST нет, берем PREVPRICE
+                        elif len(row) > 2 and row[2] is not None:
+                            price = float(row[2])
+                            logger.info(f"⚠️ Получена цена закрытия {ticker}: {price} ₽")
+                            return price
+                else:
+                    logger.warning(f"Ошибка MOEX API {response.status} для {ticker}")
 
         except Exception as e:
             logger.warning(f"Ошибка получения цены {ticker} с MOEX: {e}")
 
         return None
+
+    async def get_multiple_moex_prices(self, tickers: list) -> Dict[str, float]:
+        """Получение цен для нескольких тикеров одновременно"""
+        try:
+            prices = {}
+
+            # Получаем цены параллельно
+            tasks = [self.get_moex_price(ticker) for ticker in tickers]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for ticker, result in zip(tickers, results):
+                if isinstance(result, float):
+                    prices[ticker] = result
+                else:
+                    logger.warning(f"Не удалось получить цену для {ticker}")
+
+            return prices
+
+        except Exception as e:
+            logger.error(f"Ошибка при получении множественных цен: {e}")
+            return {}
 
     async def get_realistic_price(self, ticker: str) -> Optional[float]:
         """Получение реалистичной цены только с MOEX API"""

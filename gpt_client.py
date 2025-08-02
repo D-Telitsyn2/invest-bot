@@ -63,7 +63,7 @@ class XAIClient:
 
     async def get_investment_ideas(self, budget: float = 10000, risk_level: str = "medium") -> List[Dict]:
         """
-        Получение инвестиционных идей от xAI Grok
+        Получение инвестиционных идей от xAI Grok с реальными ценами MOEX
 
         Args:
             budget: Бюджет для инвестирования
@@ -77,21 +77,20 @@ class XAIClient:
             return []
 
         try:
+            # Сначала получаем идеи от AI
             prompt = f"""
 Проанализируй российский рынок MOEX и предложи 5-7 инвестиционных идей.
 
 ТРЕБОВАНИЯ:
 - Разные сектора: банки, IT, энергетика, металлургия, телеком
 - Только реальные российские тикеры на MOEX
-- Актуальные цены на август 2025
 - Бюджет: {budget} рублей, риск: {risk_level}
 
-ОТВЕТ ТОЛЬКО В JSON ФОРМАТЕ:
+ОТВЕТ ТОЛЬКО В JSON ФОРМАТЕ (без цен, их получим отдельно):
 [
   {{
     "ticker": "SBER",
     "action": "BUY",
-    "price": 250.0,
     "target_price": 280.0,
     "reasoning": "Краткое обоснование"
   }}
@@ -99,7 +98,7 @@ class XAIClient:
 """
 
             messages = [
-                {"role": "system", "content": "Ты инвестиционный аналитик российского рынка. Отвечай ТОЛЬКО чистым JSON массивом без дополнительного текста. Анализируй реальные компании MOEX."},
+                {"role": "system", "content": "Ты инвестиционный аналитик российского рынка. Отвечай ТОЛЬКО чистым JSON массивом без дополнительного текста. НЕ указывай цены - их получим отдельно с биржи."},
                 {"role": "user", "content": prompt}
             ]
 
@@ -113,7 +112,24 @@ class XAIClient:
             if start_idx != -1 and end_idx != -1:
                 json_str = content[start_idx:end_idx]
                 ideas = json.loads(json_str)
-                logger.info(f"✅ xAI Grok вернул {len(ideas)} инвестиционных идей")
+
+                # Получаем реальные цены с MOEX
+                from market_data import market_data
+                tickers = [idea['ticker'] for idea in ideas]
+                real_prices = await market_data.get_multiple_moex_prices(tickers)
+
+                # Добавляем реальные цены к идеям
+                for idea in ideas:
+                    ticker = idea['ticker']
+                    if ticker in real_prices:
+                        idea['price'] = real_prices[ticker]
+                        logger.info(f"✅ Добавлена реальная цена для {ticker}: {real_prices[ticker]} ₽")
+                    else:
+                        # Если не удалось получить цену, используем примерную
+                        idea['price'] = idea.get('target_price', 100.0) * 0.9
+                        logger.warning(f"⚠️ Используется примерная цена для {ticker}")
+
+                logger.info(f"✅ xAI Grok вернул {len(ideas)} инвестиционных идей с реальными ценами")
                 return ideas
             else:
                 logger.error("xAI не вернул корректный JSON")

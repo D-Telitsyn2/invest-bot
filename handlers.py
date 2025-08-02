@@ -58,26 +58,70 @@ async def cmd_start(message: Message):
 
 @router.message(Command("portfolio"))
 async def cmd_portfolio(message: Message):
-    """Показать портфель пользователя"""
+    """Показать портфель пользователя с актуальными ценами"""
     try:
+        await message.answer("📊 Получаю актуальные данные портфеля...")
+
         portfolio = await get_user_portfolio(message.from_user.id)
 
         if not portfolio:
-            await message.answer("💼 Ваш портфель пуст")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💡 Получить идеи", callback_data="get_ideas")]
+            ])
+            await message.answer("💼 Ваш портфель пуст\n\nНачните инвестировать!", reply_markup=keyboard)
             return
+
+        # Получаем актуальные цены для всех тикеров в портфеле
+        from market_data import market_data
+        tickers = [pos['ticker'] for pos in portfolio]
+        current_prices = await market_data.get_multiple_moex_prices(tickers)
 
         portfolio_text = "💼 *Ваш портфель:*\n\n"
         total_value = 0
+        total_invested = 0
 
         for position in portfolio:
-            portfolio_text += f"📈 {position['ticker']}: {position['quantity']} шт.\n"
-            portfolio_text += f"💰 Средняя цена: {position['avg_price']:.2f} ₽\n"
-            portfolio_text += f"📊 Текущая стоимость: {position['current_value']:.2f} ₽\n\n"
-            total_value += position['current_value']
+            ticker = position['ticker']
+            quantity = position['quantity']
+            avg_price = position['avg_price']
 
-        portfolio_text += f"💎 *Общая стоимость: {total_value:.2f} ₽*"
+            # Используем актуальную цену с биржи
+            current_price = current_prices.get(ticker, position.get('current_price', avg_price))
+            current_value = quantity * current_price
+            invested_value = quantity * avg_price
+            profit_loss = current_value - invested_value
+            profit_percent = (profit_loss / invested_value * 100) if invested_value > 0 else 0
 
-        await message.answer(portfolio_text, parse_mode="Markdown")
+            profit_emoji = "📈" if profit_loss >= 0 else "📉"
+            profit_sign = "+" if profit_loss >= 0 else ""
+
+            portfolio_text += f"📈 *{ticker}*: {quantity} шт.\n"
+            portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
+            portfolio_text += f"� Текущая цена: {current_price:.2f} ₽\n"
+            portfolio_text += f"💎 Стоимость: {current_value:.2f} ₽\n"
+            portfolio_text += f"{profit_emoji} P&L: {profit_sign}{profit_loss:.2f} ₽ ({profit_sign}{profit_percent:.1f}%)\n\n"
+
+            total_value += current_value
+            total_invested += invested_value
+
+        total_profit = total_value - total_invested
+        total_profit_percent = (total_profit / total_invested * 100) if total_invested > 0 else 0
+        total_emoji = "📈" if total_profit >= 0 else "📉"
+        total_sign = "+" if total_profit >= 0 else ""
+
+        portfolio_text += f"💎 *Общая стоимость: {total_value:.2f} ₽*\n"
+        portfolio_text += f"💰 Инвестировано: {total_invested:.2f} ₽\n"
+        portfolio_text += f"{total_emoji} *Общий P&L: {total_sign}{total_profit:.2f} ₽ ({total_sign}{total_profit_percent:.1f}%)*"
+
+        # Добавляем кнопки управления портфелем
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑️ Продать акции", callback_data="sell_stock"),
+                InlineKeyboardButton(text="💡 Новые идеи", callback_data="get_ideas")
+            ]
+        ])
+
+        await message.answer(portfolio_text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка при получении портфеля: {e}")
@@ -211,18 +255,201 @@ async def confirm_trade(callback: CallbackQuery, state: FSMContext):
         quantity = data.get("quantity")
         total_cost = data.get("total_cost")
 
-        # Симуляция выполнения сделки (торговля отключена)
-        await callback.message.edit_text(
-            "❌ Торговля через бота временно недоступна.\n"
-            "Используйте полученные рекомендации для торговли в вашем брокерском приложении.",
-            reply_markup=None
+        if not all([selected_idea, quantity, total_cost]):
+            await callback.message.answer("❌ Ошибка: неполные данные сделки")
+            await state.clear()
+            return
+
+        # Сохраняем сделку в базу данных
+        success = await save_order(
+            user_id=callback.from_user.id,
+            ticker=selected_idea['ticker'],
+            quantity=quantity,
+            price=selected_idea['price'],
+            order_type=selected_idea['action'],
+            total_amount=total_cost
         )
+
+        if success:
+            await callback.message.edit_text(
+                f"✅ *Сделка выполнена!*\n\n"
+                f"📈 Тикер: *{selected_idea['ticker']}*\n"
+                f"📊 Операция: *{selected_idea['action']}*\n"
+                f"🔢 Количество: *{quantity} шт.*\n"
+                f"💰 Цена: *{selected_idea['price']:.2f} ₽*\n"
+                f"💎 Сумма: *{total_cost:.2f} ₽*\n\n"
+                f"Сделка добавлена в ваш портфель!",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+        else:
+            await callback.message.edit_text(
+                "❌ Ошибка при сохранении сделки в базу данных",
+                reply_markup=None
+            )
+
+        await state.clear()
 
     except Exception as e:
         logger.error(f"Ошибка при выполнении операции: {e}")
         await callback.message.answer("❌ Произошла ошибка при выполнении операции")
         await state.clear()
 
+    await callback.answer()
+
+@router.callback_query(F.data == "sell_stock")
+async def sell_stock_selection(callback: CallbackQuery, state: FSMContext):
+    """Выбор акции для продажи"""
+    try:
+        portfolio = await get_user_portfolio(callback.from_user.id)
+
+        if not portfolio:
+            await callback.message.answer("💼 Ваш портфель пуст")
+            await callback.answer()
+            return
+
+        # Создаем клавиатуру с акциями для продажи
+        keyboard_buttons = []
+        for position in portfolio:
+            ticker = position['ticker']
+            quantity = position['quantity']
+            button_text = f"📉 {ticker} ({quantity} шт.)"
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"sell_{ticker}"
+            )])
+
+        keyboard_buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+        await callback.message.answer(
+            "🗑️ *Выберите акцию для продажи:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при выборе акций для продажи: {e}")
+        await callback.message.answer("❌ Ошибка при получении данных портфеля")
+
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("sell_"))
+async def process_sell_stock(callback: CallbackQuery, state: FSMContext):
+    """Обработка продажи конкретной акции"""
+    if callback.data == "sell_stock":
+        await sell_stock_selection(callback, state)
+        return
+
+    ticker = callback.data.replace("sell_", "")
+
+    try:
+        # Получаем информацию о позиции
+        portfolio = await get_user_portfolio(callback.from_user.id)
+        position = next((p for p in portfolio if p['ticker'] == ticker), None)
+
+        if not position:
+            await callback.message.answer(f"❌ Акция {ticker} не найдена в портфеле")
+            await callback.answer()
+            return
+
+        # Получаем текущую цену
+        from market_data import market_data
+        current_price = await market_data.get_moex_price(ticker)
+        if not current_price:
+            current_price = position.get('current_price', position['avg_price'])
+
+        quantity = position['quantity']
+        avg_price = position['avg_price']
+        current_value = quantity * current_price
+        invested_value = quantity * avg_price
+        profit_loss = current_value - invested_value
+
+        confirmation_text = f"""
+🗑️ *Продажа акций {ticker}*
+
+📊 В портфеле: *{quantity} шт.*
+💰 Средняя цена покупки: *{avg_price:.2f} ₽*
+💱 Текущая цена: *{current_price:.2f} ₽*
+💎 Стоимость позиции: *{current_value:.2f} ₽*
+📈 P&L: *{profit_loss:+.2f} ₽*
+
+Продать все акции по текущей цене?
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Продать все", callback_data=f"confirm_sell_{ticker}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
+            ]
+        ])
+
+        await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+        await state.update_data(sell_ticker=ticker, sell_price=current_price, sell_quantity=quantity)
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке продажи {ticker}: {e}")
+        await callback.message.answer("❌ Ошибка при обработке продажи")
+
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("confirm_sell_"))
+async def confirm_sell_stock(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение продажи акции"""
+    ticker = callback.data.replace("confirm_sell_", "")
+
+    try:
+        data = await state.get_data()
+        sell_price = data.get("sell_price")
+        sell_quantity = data.get("sell_quantity")
+
+        if not all([sell_price, sell_quantity]):
+            await callback.message.answer("❌ Ошибка: неполные данные для продажи")
+            await state.clear()
+            return
+
+        total_amount = sell_quantity * sell_price
+
+        # Выполняем продажу (сохраняем в базу)
+        success = await save_order(
+            user_id=callback.from_user.id,
+            ticker=ticker,
+            quantity=sell_quantity,
+            price=sell_price,
+            order_type="SELL",
+            total_amount=total_amount
+        )
+
+        if success:
+            await callback.message.edit_text(
+                f"✅ *Продажа выполнена!*\n\n"
+                f"📉 Продано: *{ticker}*\n"
+                f"🔢 Количество: *{sell_quantity} шт.*\n"
+                f"💰 Цена: *{sell_price:.2f} ₽*\n"
+                f"💎 Получено: *{total_amount:.2f} ₽*",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+        else:
+            await callback.message.edit_text(
+                "❌ Ошибка при выполнении продажи",
+                reply_markup=None
+            )
+
+        await state.clear()
+
+    except Exception as e:
+        logger.error(f"Ошибка при подтверждении продажи {ticker}: {e}")
+        await callback.message.answer("❌ Ошибка при выполнении продажи")
+        await state.clear()
+
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_sell")
+async def cancel_sell(callback: CallbackQuery, state: FSMContext):
+    """Отмена продажи"""
+    await callback.message.answer("❌ Продажа отменена")
+    await state.clear()
     await callback.answer()
 
 @router.callback_query(F.data == "cancel_trade")
