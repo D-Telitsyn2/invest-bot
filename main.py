@@ -34,32 +34,35 @@ async def set_bot_commands():
     await bot.set_my_commands(commands)
 
 async def main():
-    """Основная функция запуска бота"""
+    logger.info("Запуск бота...")
+
+    logger.info("Инициализация базы данных...")
+    await init_db()
+    logger.info("База данных успешно инициализирована.")
+
+    logger.info("Регистрация обработчиков...")
+    register_handlers(dp)
+    logger.info("Обработчики успешно зарегистрированы.")
+
+    logger.info("Установка команд бота...")
+    await set_bot_commands()
+    logger.info("Команды бота успешно установлены.")
+
+    logger.info("Запуск планировщика...")
+    scheduler_service.bot = bot
+    await scheduler_service.start()
+    logger.info("Планировщик успешно запущен.")
+
+    logger.info("Бот готов к работе. Запуск опроса...")
+
+    # Запуск polling
     try:
-        # Инициализация базы данных
-        await init_db()
-
-        # Регистрация обработчиков
-        register_handlers(dp)
-
-        # Установка команд бота
-        await set_bot_commands()
-
-        # Запуск планировщика задач
-        scheduler_service.bot = bot
-        await scheduler_service.start()
-
-        logger.info("Бот запущен")
-
-        # Запуск polling
         await dp.start_polling(bot)
-
-    except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}")
     finally:
-        # Остановка планировщика
+        logger.info("Остановка бота...")
         await scheduler_service.stop()
         await bot.session.close()
+        logger.info("Бот остановлен. Сессия и планировщик завершены.")
 
 if __name__ == "__main__":
     asyncio.run(main())

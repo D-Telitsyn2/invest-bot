@@ -7,8 +7,3 @@ startCommand = "python main.py"
 [env]
 PYTHONUNBUFFERED = "1"
 RAILWAY_ENVIRONMENT = "true"
-
-# Постоянное хранение для SQLite базы данных
-[[volumes]]
-name = "database"
-mount_path = "/app/data"
