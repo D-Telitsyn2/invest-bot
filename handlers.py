@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from gpt_client import GPTClient
+from gpt_client import XAIClient
 from tinkoff_client import TinkoffClient
 from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity
 
@@ -87,18 +87,18 @@ async def cmd_portfolio(message: Message):
 @router.message(Command("ideas"))
 async def cmd_ideas(message: Message, state: FSMContext):
     """Получить инвестиционные идеи"""
-    await message.answer("💭 Анализирую рынок и генерирую идеи...")
+    await message.answer("🤖 Анализирую рынок с помощью xAI Grok...")
 
     try:
-        # Получаем идеи от GPT
-        gpt_client = GPTClient()
-        ideas = await gpt_client.get_investment_ideas(budget=10000)
+        # Получаем идеи от xAI Grok
+        xai_client = XAIClient()
+        ideas = await xai_client.get_investment_ideas(budget=10000)
 
         if not ideas:
             await message.answer("❌ Не удалось получить идеи. Попробуйте позже.")
             return
 
-        ideas_text = "💡 *Инвестиционные идеи:*\n\n"
+        ideas_text = "🚀 *Инвестиционные идеи от xAI Grok:*\n\n"
 
         for i, idea in enumerate(ideas[:3], 1):  # Показываем только первые 3 идеи
             ideas_text += f"*{i}. {idea['ticker']}*\n"
