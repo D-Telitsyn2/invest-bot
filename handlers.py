@@ -144,11 +144,24 @@ async def cmd_ideas(message: Message, state: FSMContext):
         ideas_text = "🚀 *Инвестиционные идеи от xAI Grok:*\n\n"
 
         for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 5 идей
+            current_price = idea.get('price', 0)
+            target_price = idea.get('target_price', 0)
+            timeframe = idea.get('target_timeframe', 'средний срок')
+
+            # Рассчитываем потенциальную доходность
+            if current_price > 0 and target_price > 0:
+                potential_return = ((target_price - current_price) / current_price) * 100
+                return_emoji = "📈" if potential_return > 0 else "📉"
+                return_text = f"{return_emoji} Потенциал: {potential_return:+.1f}%"
+            else:
+                return_text = "⚠️ Цели нет"
+
             ideas_text += f"*{i}. {idea['ticker']}*\n"
             ideas_text += f"📊 Рекомендация: {idea['action']}\n"
-            ideas_text += f"💰 Цена: {idea['price']:.2f} ₽\n"
-            ideas_text += f"🎯 Цель: {idea['target_price']:.2f} ₽\n"
-            ideas_text += f"📝 Обоснование: {idea['reasoning']}\n\n"
+            ideas_text += f"💰 Текущая цена: {current_price:.2f} ₽\n"
+            ideas_text += f"🎯 Целевая цена: {target_price:.2f} ₽ ({timeframe})\n"
+            ideas_text += f"{return_text}\n"
+            ideas_text += f"📝 {idea['reasoning']}\n\n"
 
         # Клавиатура для выбора идеи
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
