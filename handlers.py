@@ -683,49 +683,26 @@ async def cmd_history(message: Message):
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
     """Показать настройки (команда)"""
+    # Создаем фиктивный callback для повторного использования логики
+    class FakeCallback:
+        def __init__(self, message):
+            self.message = message
+            self.from_user = message.from_user
+
+        async def answer(self, text=""):
+            pass  # Для команды не нужно отвечать на callback
+
+    fake_callback = FakeCallback(message)
+
+    # Заменяем edit_text на answer для команды
+    original_edit_text = message.edit_text
+    message.edit_text = message.answer
+
     try:
-        settings = await get_user_settings(message.from_user.id)
-
-        # Безопасная проверка настроек
-        if not settings:
-            settings = {
-                'risk_level': 'medium',
-                'max_investment_amount': 10000,
-                'notifications': True
-            }
-
-        risk_levels = {
-            'low': '🟢 Низкий',
-            'medium': '🟡 Средний',
-            'high': '🔴 Высокий'
-        }
-
-        settings_text = f"""
-⚙️ *Ваши настройки:*
-
-🎯 *Уровень риска:* {risk_levels.get(settings.get('risk_level', 'medium'), settings.get('risk_level', 'medium'))}
-💰 *Макс. сумма инвестирования:* {settings.get('max_investment_amount', 10000):,.0f} ₽
-🔔 *Уведомления:* {'✅ Включены' if settings.get('notifications', True) else '❌ Отключены'}
-
-Выберите что изменить:
-        """
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🎯 Уровень риска", callback_data="set_risk"),
-                InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
-            ],
-            [
-                InlineKeyboardButton(text="🔔 Уведомления", callback_data="toggle_notifications"),
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")
-            ]
-        ])
-
-        await message.answer(settings_text, reply_markup=keyboard, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Ошибка при показе настроек: {e}")
-        await message.answer("❌ Ошибка при получении настроек")
+        await show_settings(fake_callback)
+    finally:
+        # Восстанавливаем оригинальный метод
+        message.edit_text = original_edit_text
 
 @router.callback_query(F.data == "portfolio")
 async def show_portfolio_callback(callback: CallbackQuery):
@@ -988,11 +965,11 @@ async def show_settings(callback: CallbackQuery):
             ]
         ])
 
-        await callback.message.answer(settings_text, reply_markup=keyboard, parse_mode="Markdown")
+        await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка при показе настроек: {e}")
-        await callback.message.answer("❌ Ошибка при получении настроек")
+        await callback.message.edit_text("❌ Ошибка при получении настроек")
 
     await callback.answer()
 
