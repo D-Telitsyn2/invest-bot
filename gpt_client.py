@@ -103,7 +103,7 @@ class XAIClient:
 
             # Сначала получаем идеи от AI
             prompt = f"""
-Ты - ведущий инвестиционный аналитик российского рынка. Проанализируй MOEX и подбери 5-7 инвестиционных идей.
+Ты - ведущий инвестиционный аналитик российского рынка. Проанализируй MOEX и подбери 8-12 разнообразных инвестиционных идей.
 
 СТРАТЕГИЯ: {strategy['description']}
 ФОКУС: {strategy['focus']}
@@ -113,6 +113,8 @@ class XAIClient:
 - Бюджет: {budget:,.0f} рублей
 - Уровень риска: {risk_level.upper()}
 - Рынок: Российские акции (MOEX)
+
+ВАЖНО: Подбери РАЗНООБРАЗНЫЕ компании из разных секторов для диверсификации.
 
 ТРЕБОВАНИЯ ПО РИСКУ:
 {f"- Выбирай ТОЛЬКО надежные дивидендные компании с долгой историей" if risk_level == 'low' else ""}
@@ -136,7 +138,7 @@ class XAIClient:
                 {"role": "user", "content": prompt}
             ]
 
-            data = await self._make_request(messages, max_tokens=800, temperature=0.3)
+            data = await self._make_request(messages, max_tokens=1200, temperature=0.3)
             content = data['choices'][0]['message']['content'].strip()
 
             # Парсим JSON ответ

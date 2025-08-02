@@ -159,7 +159,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
         ideas_text = "🎯 *Инвестиционные идеи от xAI Grok:*\n\n"
         keyboard_buttons = []
 
-        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей
+        for i, idea in enumerate(ideas[:10], 1):  # Показываем максимум 10 идей
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
@@ -174,25 +174,19 @@ async def cmd_ideas(message: Message, state: FSMContext):
             ideas_text += f"*{i}.* `{ticker}`\n"
             ideas_text += f"💰 Цена: {price:.2f} ₽\n"
             ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
-            ideas_text += f" {reasoning}\n\n"            # Добавляем кнопку для покупки этой идеи
-            if i <= 2:  # Первый ряд - первые 2 идеи
-                if len(keyboard_buttons) == 0:
-                    keyboard_buttons.append([])
-                keyboard_buttons[0].append(
-                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
-                )
-            elif i <= 4:  # Второй ряд - следующие 2 идеи
-                if len(keyboard_buttons) == 1:
-                    keyboard_buttons.append([])
-                keyboard_buttons[1].append(
-                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
-                )
-            else:  # Третий ряд - последняя идея
-                if len(keyboard_buttons) == 2:
-                    keyboard_buttons.append([])
-                keyboard_buttons[2].append(
-                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
-                )
+            ideas_text += f"💡 {reasoning}\n\n"
+
+            # Добавляем кнопки для покупки (по 2 в ряду)
+            row_index = (i - 1) // 2  # Определяем номер ряда (0, 1, 2, 3, 4)
+
+            # Создаем новый ряд если нужно
+            while len(keyboard_buttons) <= row_index:
+                keyboard_buttons.append([])
+
+            # Добавляем кнопку в соответствующий ряд
+            keyboard_buttons[row_index].append(
+                InlineKeyboardButton(text=f"💳 {ticker}", callback_data=f"select_idea_{i-1}")
+            )
 
         # Добавляем кнопку обновления идей
         keyboard_buttons.append([
