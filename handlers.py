@@ -18,6 +18,8 @@ class InvestmentStates(StatesGroup):
     waiting_for_risk_level = State()
     waiting_for_max_amount = State()
     waiting_for_custom_price = State()  # Новое состояние для ввода пользовательской цены
+    waiting_for_target_ticker = State()  # Ожидание тикера для установки целевой цены
+    waiting_for_target_price = State()   # Ожидание целевой цены
 
 router = Router()
 
@@ -104,7 +106,14 @@ async def cmd_portfolio(message: Message):
 
             portfolio_text += f"📈 *{ticker}*: {quantity} шт.\n"
             portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
-            portfolio_text += f"� Текущая цена: {current_price:.2f} ₽\n"
+            portfolio_text += f"💵 Текущая цена: {current_price:.2f} ₽\n"
+
+            # Добавляем информацию о целевой цене
+            target_price = position.get('target_price', 0)
+            if target_price > 0:
+                target_profit = ((target_price - avg_price) / avg_price) * 100
+                portfolio_text += f"🎯 Целевая цена: {target_price:.2f} ₽ (+{target_profit:.1f}%)\n"
+
             portfolio_text += f"💎 Стоимость: {current_value:.2f} ₽\n"
             portfolio_text += f"{profit_emoji} P&L: {profit_sign}{profit_loss:.2f} ₽ ({profit_sign}{profit_percent:.1f}%)\n\n"
 
@@ -123,8 +132,11 @@ async def cmd_portfolio(message: Message):
         # Добавляем кнопки управления портфелем
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🗑️ Продать акции", callback_data="sell_stock"),
+                InlineKeyboardButton(text="🎯 Целевые цены", callback_data="target_prices"),
                 InlineKeyboardButton(text="💡 Новые идеи", callback_data="get_ideas")
+            ],
+            [
+                InlineKeyboardButton(text="🗑️ Продать акции", callback_data="sell_stock")
             ]
         ])
 
@@ -133,6 +145,49 @@ async def cmd_portfolio(message: Message):
     except Exception as e:
         logger.error(f"Ошибка при получении портфеля: {e}")
         await message.answer("❌ Ошибка при получении данных портфеля")
+
+@router.message(Command("target"))
+async def cmd_target_price(message: Message, state: FSMContext):
+    """Установка целевых цен для позиций в портфеле"""
+    try:
+        user_id = message.from_user.id
+
+        # Получаем портфель пользователя
+        portfolio = await get_user_portfolio(user_id)
+
+        if not portfolio:
+            await message.answer("💼 Ваш портфель пуст. Сначала добавьте позиции через /ideas")
+            return
+
+        # Показываем текущие позиции и целевые цены
+        target_text = "🎯 *Управление целевыми ценами*\n\n"
+        target_text += "Ваши позиции:\n\n"
+
+        for i, pos in enumerate(portfolio, 1):
+            ticker = pos['ticker']
+            current_price = pos.get('current_price', pos['avg_price'])
+            target_price = pos.get('target_price', 0)
+
+            target_text += f"{i}. *{ticker}*\n"
+            target_text += f"   💰 Текущая: {current_price:.2f} ₽\n"
+
+            if target_price > 0:
+                target_text += f"   🎯 Целевая: {target_price:.2f} ₽\n"
+                profit_percent = ((target_price - pos['avg_price']) / pos['avg_price']) * 100
+                target_text += f"   📊 Потенциал: +{profit_percent:.1f}%\n"
+            else:
+                target_text += f"   🎯 Целевая: не установлена\n"
+            target_text += "\n"
+
+        target_text += "Отправьте команду в формате:\n"
+        target_text += "`/target ТИКЕР цена`\n\n"
+        target_text += "Например: `/target SBER 350.5`"
+
+        await message.answer(target_text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе целевых цен: {e}")
+        await message.answer("❌ Ошибка при получении данных")
 
 @router.message(Command("ideas"))
 async def cmd_ideas(message: Message, state: FSMContext):
@@ -356,6 +411,63 @@ async def toggle_price_updates(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка toggle_price_updates: {e}")
         await callback.answer("❌ Ошибка при изменении настройки")
+
+@router.message(F.text.regexp(r'^/target\s+([A-Z]{3,5})\s+(\d+\.?\d*)$'))
+async def set_target_price(message: Message):
+    """Установка целевой цены для конкретного тикера"""
+    try:
+        # Извлекаем тикер и цену из сообщения
+        import re
+        match = re.match(r'^/target\s+([A-Z]{3,5})\s+(\d+\.?\d*)$', message.text)
+        if not match:
+            await message.answer("❌ Неверный формат. Используйте: `/target ТИКЕР цена`\nНапример: `/target SBER 350.5`", parse_mode="Markdown")
+            return
+
+        ticker = match.group(1).upper()
+        target_price = float(match.group(2))
+        user_id = message.from_user.id
+
+        # Проверяем, есть ли такая позиция в портфеле
+        portfolio = await get_user_portfolio(user_id)
+        position = next((p for p in portfolio if p['ticker'] == ticker), None)
+
+        if not position:
+            await message.answer(f"❌ Позиция *{ticker}* не найдена в вашем портфеле.\nСначала добавьте её через /ideas", parse_mode="Markdown")
+            return
+
+        # Устанавливаем целевую цену
+        from database import update_target_price
+        await update_target_price(user_id, ticker, target_price)
+
+        # Рассчитываем потенциальную прибыль
+        avg_price = position['avg_price']
+        current_price = position.get('current_price', avg_price)
+        quantity = position['quantity']
+
+        profit_from_avg = ((target_price - avg_price) / avg_price) * 100
+        profit_from_current = ((target_price - current_price) / current_price) * 100
+
+        profit_amount = (target_price - avg_price) * quantity
+
+        success_text = f"✅ *Целевая цена установлена!*\n\n"
+        success_text += f"📊 *{ticker}*\n"
+        success_text += f"💰 Ваша цена: {avg_price:.2f} ₽\n"
+        success_text += f"💵 Текущая: {current_price:.2f} ₽\n"
+        success_text += f"🎯 Целевая: {target_price:.2f} ₽\n\n"
+        success_text += f"📈 Потенциал от покупки: +{profit_from_avg:.1f}%\n"
+        success_text += f"📊 От текущей цены: {profit_from_current:+.1f}%\n"
+        success_text += f"💎 Потенциальная прибыль: {profit_amount:+,.0f} ₽\n\n"
+        success_text += f"🔔 Вы получите уведомление, когда цена достигнет {target_price:.2f} ₽"
+
+        await message.answer(success_text, parse_mode="Markdown")
+
+        logger.info(f"Пользователь {user_id} установил целевую цену {target_price} для {ticker}")
+
+    except ValueError:
+        await message.answer("❌ Неверный формат цены. Используйте числа, например: 350.5")
+    except Exception as e:
+        logger.error(f"Ошибка при установке целевой цены: {e}")
+        await message.answer("❌ Ошибка при установке целевой цены")
 
 def register_handlers(dp):
     """Регистрация всех обработчиков"""
@@ -983,6 +1095,54 @@ async def show_portfolio_callback(callback: CallbackQuery):
         logger.error(f"Ошибка при получении портфеля через callback: {e}")
         await callback.message.answer("❌ Ошибка при получении портфеля")
 
+@router.callback_query(F.data == "target_prices")
+async def show_target_prices(callback: CallbackQuery):
+    """Показать и управлять целевыми ценами"""
+    try:
+        await callback.answer("🎯 Загружаю целевые цены...")
+
+        user_id = callback.from_user.id
+        portfolio = await get_user_portfolio(user_id)
+
+        if not portfolio:
+            await callback.message.answer("💼 Ваш портфель пуст. Сначала добавьте позиции через /ideas")
+            return
+
+        # Показываем текущие позиции и целевые цены
+        target_text = "🎯 *Управление целевыми ценами*\n\n"
+
+        for i, pos in enumerate(portfolio, 1):
+            ticker = pos['ticker']
+            current_price = pos.get('current_price', pos['avg_price'])
+            target_price = pos.get('target_price', 0)
+            avg_price = pos['avg_price']
+
+            target_text += f"{i}. *{ticker}*\n"
+            target_text += f"   💰 Ваша цена: {avg_price:.2f} ₽\n"
+            target_text += f"   💵 Текущая: {current_price:.2f} ₽\n"
+
+            if target_price > 0:
+                target_text += f"   🎯 Целевая: {target_price:.2f} ₽\n"
+                profit_percent = ((target_price - avg_price) / avg_price) * 100
+                profit_from_current = ((target_price - current_price) / current_price) * 100
+                target_text += f"   📊 Потенциал: +{profit_percent:.1f}%"
+                if profit_from_current != profit_percent:
+                    target_text += f" (от текущей: {profit_from_current:+.1f}%)"
+                target_text += "\n"
+            else:
+                target_text += f"   🎯 Целевая: не установлена\n"
+            target_text += "\n"
+
+        target_text += "Для установки целевой цены используйте:\n"
+        target_text += "`/target ТИКЕР цена`\n\n"
+        target_text += "Например: `/target SBER 350.5`"
+
+        await callback.message.answer(target_text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе целевых цен: {e}")
+        await callback.message.answer("❌ Ошибка при получении данных")
+
 @router.callback_query(F.data == "get_ideas")
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     """Получить идеи через callback"""
@@ -1138,6 +1298,7 @@ async def cmd_help(message: Message):
 🤖 *Основные команды:*
 • /start - Главное меню и быстрый доступ ко всем функциям
 • /portfolio - Показать текущий портфель и его стоимость
+• /target - Управление целевыми ценами (например: `/target SBER 350`)
 • /ideas - Получить персональные инвестиционные идеи от AI
 • /history - История всех ваших операций
 • /settings - Настройки профиля и уведомлений
@@ -1208,6 +1369,7 @@ async def show_help_callback(callback: CallbackQuery):
 🤖 *Основные команды:*
 • /start - Главное меню и быстрый доступ ко всем функциям
 • /portfolio - Показать текущий портфель и его стоимость
+• /target - Управление целевыми ценами (например: `/target SBER 350`)
 • /ideas - Получить персональные инвестиционные идеи от AI
 • /history - История всех ваших операций
 • /settings - Настройки профиля и уведомлений
