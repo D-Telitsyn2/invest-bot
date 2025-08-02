@@ -8,6 +8,25 @@ import os
 logger = logging.getLogger(__name__)
 
 # Определяем путь к базе данных на основе среды
+# Проверяем несколько вариантов: переменная из railway.toml и автоматические переменные Railway
+is_railway = (
+    os.getenv('RAILWAY_ENVIRONMENT') == 'true' or  # Из railway.toml
+    os.getenv('RAILWAY_STATIC_URL') or             # Автоматическая от Railway
+    os.getenv('RAILWAY_PROJECT_NAME') or           # Автоматическая от Railway
+    os.getenv('RAILWAY_PROJECT_ID')                # Автоматическая от Railway
+)
+
+if is_railway:
+    # Railway с постоянным хранилищем
+    DATABASE_PATH = "/app/data/invest_bot.db"
+    os.makedirs("/app/data", exist_ok=True)
+    logger.info("🚂 Railway: используется постоянное хранилище")
+    project_name = os.getenv('RAILWAY_PROJECT_NAME', 'Unknown')
+    logger.info(f"🚂 Railway project: {project_name}")
+else:
+    # Локальная разработка
+    DATABASE_PATH = "invest_bot.db"
+    logger.info("🖥️ Локально: используется invest_bot.db")
 if os.getenv('RAILWAY_ENVIRONMENT'):
     # Railway с постоянным хранилищем
     DATABASE_PATH = "/app/data/invest_bot.db"
