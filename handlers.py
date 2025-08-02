@@ -99,7 +99,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
 
         ideas_text = "🚀 *Инвестиционные идеи от xAI Grok:*\n\n"
 
-        for i, idea in enumerate(ideas[:3], 1):  # Показываем только первые 3 идеи
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 15 идей
             ideas_text += f"*{i}. {idea['ticker']}*\n"
             ideas_text += f"📊 Рекомендация: {idea['action']}\n"
             ideas_text += f"💰 Цена: {idea['price']:.2f} ₽\n"
@@ -109,7 +109,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
         # Клавиатура для выбора идеи
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"📈 {idea['ticker']}", callback_data=f"select_idea_{i}")]
-            for i, idea in enumerate(ideas[:3])
+            for i, idea in enumerate(ideas[:15])
         ])
 
         await message.answer(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
