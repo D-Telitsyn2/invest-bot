@@ -308,3 +308,104 @@ async def get_positions_for_alerts() -> List[Dict]:
             WHERE p.target_price > 0 AND s.target_price_alerts = TRUE
         """)
         return [dict(row) for row in rows]
+
+async def update_prices_in_portfolio(prices: Dict[str, float]):
+    """
+    Обновляет текущие цены для нескольких тикеров в портфелях пользователей.
+    :param prices: Словарь, где ключ - тикер, значение - новая цена.
+    """
+    if not prices:
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            try:
+                for ticker, price in prices.items():
+                    await connection.execute(
+                        "UPDATE positions SET current_price = $1, last_updated = CURRENT_TIMESTAMP WHERE ticker = $2",
+                        price, ticker
+                    )
+                logger.info(f"Обновлены цены в портфелях для {len(prices)} тикеров.")
+            except Exception as e:
+                logger.error(f"Ошибка при массовом обновлении цен в портфелях: {e}")
+
+async def get_portfolio_statistics(user_id: int) -> Dict[str, float]:
+    """Вычисляет и возвращает статистику по портфелю пользователя."""
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        stats = await connection.fetchrow("""
+            SELECT
+                COALESCE(SUM(quantity * avg_price), 0) as total_cost,
+                COALESCE(SUM(quantity * COALESCE(current_price, avg_price)), 0) as total_value
+            FROM positions
+            WHERE user_id = $1 AND quantity > 0
+        """, user_id)
+        return dict(stats) if stats else {'total_cost': 0, 'total_value': 0}
+
+async def get_users_with_notification_type(notification_type: str) -> List[Dict]:
+    """
+    Получает список пользователей, у которых включен определенный тип уведомлений.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        # Используем pg_get_expr для получения значения по умолчанию, если колонка не существует
+        query = f"""
+            SELECT s.user_id, u.username, u.first_name, s.risk_level, s.max_investment_amount
+            FROM user_settings s
+            JOIN users u ON s.user_id = u.telegram_id
+            WHERE s.{notification_type} = TRUE
+        """
+        try:
+            rows = await connection.fetch(query)
+            return [dict(row) for row in rows]
+        except asyncpg.exceptions.UndefinedColumnError:
+            logger.warning(f"Колонка {notification_type} не найдена в user_settings. Возвращен пустой список.")
+            return []
+
+async def get_user_portfolio_for_notifications(user_id: int) -> List[Dict]:
+    """
+    Получение портфеля пользователя для отправки уведомлений.
+    Включает расчет нереализованной прибыли и процента доходности.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        rows = await connection.fetch("""
+            SELECT
+                ticker,
+                quantity,
+                avg_price,
+                COALESCE(current_price, avg_price) as current_price,
+                (COALESCE(current_price, avg_price) - avg_price) * quantity as unrealized_pnl,
+                CASE
+                    WHEN avg_price > 0 THEN ((COALESCE(current_price, avg_price) - avg_price) / avg_price) * 100
+                    ELSE 0
+                END as return_pct
+            FROM positions
+            WHERE user_id = $1 AND quantity > 0
+        """, user_id)
+        return [dict(row) for row in rows]
+
+async def check_target_prices_achieved(user_id: int) -> List[Dict]:
+    """
+    Проверяет, достигнуты ли целевые цены для позиций пользователя.
+    Возвращает список позиций, где цена достигла или превысила целевую.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        rows = await connection.fetch("""
+            SELECT
+                p.ticker,
+                p.target_price,
+                p.current_price,
+                (p.current_price - p.avg_price) * p.quantity as unrealized_pnl,
+                CASE
+                    WHEN p.avg_price > 0 THEN ((p.current_price - p.avg_price) / p.avg_price) * 100
+                    ELSE 0
+                END as return_pct
+            FROM positions p
+            WHERE p.user_id = $1
+              AND p.target_price > 0
+              AND p.current_price >= p.target_price
+        """, user_id)
+        return [dict(row) for row in rows]
