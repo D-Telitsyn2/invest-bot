@@ -1691,6 +1691,48 @@ async def force_price_update(message: Message):
         logger.error(f"Ошибка при принудительном обновлении цен: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
+@router.message(Command("debug_test"))
+async def debug_test_simple(message: Message):
+    """Простая версия отладки без сложного форматирования"""
+    try:
+        user_id = message.from_user.id
+
+        # Проверяем настройки пользователя
+        settings = await get_user_settings(user_id)
+
+        text = f"🔍 Отладка уведомлений для пользователя {user_id}\n\n"
+
+        if settings:
+            text += "✅ Настройки найдены:\n"
+            text += f"• notifications: {settings.get('notifications', 'не задано')}\n"
+            text += f"• daily_market_analysis: {settings.get('daily_market_analysis', 'не задано')}\n"
+            text += f"• weekly_portfolio_report: {settings.get('weekly_portfolio_report', 'не задано')}\n"
+            text += f"• target_price_alerts: {settings.get('target_price_alerts', 'не задано')}\n"
+            text += f"• price_updates: {settings.get('price_updates', 'не задано')}\n\n"
+        else:
+            text += "❌ Настройки НЕ найдены в БД\n\n"
+
+        # Проверяем планировщик
+        from scheduler import scheduler_service
+        if scheduler_service.is_running:
+            text += "⏰ Планировщик: ✅ Запущен\n"
+            jobs = scheduler_service.list_jobs()
+            text += f"⏰ Активных задач: {len(jobs)}\n"
+        else:
+            text += "⏰ Планировщик: ❌ Остановлен\n"
+
+        text += "\n🔧 Команды для тестирования:\n"
+        text += "• /force_daily - Ежедневная сводка\n"
+        text += "• /force_weekly - Еженедельный отчет\n"
+        text += "• /force_targets - Целевые цены\n"
+        text += "• /force_prices - Обновление цен"
+
+        await message.answer(text)
+
+    except Exception as e:
+        logger.error(f"Ошибка простой отладки уведомлений: {e}")
+        await message.answer(f"❌ Ошибка: {str(e)[:100]}...")
+
 @router.message(Command("debug_notifications"))
 async def debug_notifications(message: Message):
     """Отладка настроек уведомлений"""
@@ -1725,9 +1767,11 @@ async def debug_notifications(message: Message):
             try:
                 users = await get_users_with_notification_type(notification_type)
                 user_in_list = any(u['user_id'] == user_id for u in users)
-                debug_info += f"{description}: {'✅ Да' if user_in_list else '❌ Нет'} ({len(users)} всего)\n"
+                debug_info += f"{description}: {'✅ Да' if user_in_list else '❌ Нет'} ({len(users)} всего)\\n"
             except Exception as e:
-                debug_info += f"{description}: ❌ Ошибка проверки - {e}\n"
+                # Экранируем ошибку для безопасного отображения
+                error_msg = str(e).replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+                debug_info += f"{description}: ❌ Ошибка проверки - {error_msg}\\n"
 
         debug_info += "\n"
 
@@ -1738,17 +1782,29 @@ async def debug_notifications(message: Message):
             jobs = scheduler_service.list_jobs()
             debug_info += f"⏰ *Активных задач:* {len(jobs)}\n"
             for job in jobs:
-                debug_info += f"  • {job['name']} (следующий запуск: {job['next_run']})\n"
+                # Безопасно форматируем время следующего запуска
+                next_run = str(job['next_run']) if job['next_run'] else 'не запланировано'
+                # Экранируем специальные символы для Markdown
+                job_name = str(job['name']).replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+                next_run = next_run.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+                debug_info += f"  • {job_name} (следующий запуск: {next_run})\n"
         else:
             debug_info += "⏰ *Планировщик:* ❌ Остановлен\n"
 
-        debug_info += "\n🔧 *Команды для тестирования:*\n"
-        debug_info += "• `/force_daily` - Ежедневная сводка\n"
-        debug_info += "• `/force_weekly` - Еженедельный отчет\n"
-        debug_info += "• `/force_targets` - Целевые цены\n"
+        debug_info += "\\n🔧 *Команды для тестирования:*\\n"
+        debug_info += "• `/force_daily` - Ежедневная сводка\\n"
+        debug_info += "• `/force_weekly` - Еженедельный отчет\\n"
+        debug_info += "• `/force_targets` - Целевые цены\\n"
         debug_info += "• `/force_prices` - Обновление цен"
 
-        await message.answer(debug_info, parse_mode="Markdown")
+        try:
+            await message.answer(debug_info, parse_mode="Markdown")
+        except Exception as markdown_error:
+            # Если Markdown не работает, отправляем без форматирования
+            logger.warning(f"Ошибка Markdown в debug_notifications: {markdown_error}")
+            # Убираем все markdown символы для простого текста
+            plain_text = debug_info.replace('*', '').replace('_', '').replace('`', '').replace('\\n', '\n').replace('\\[', '[').replace('\\]', ']')
+            await message.answer(plain_text)
 
     except Exception as e:
         logger.error(f"Ошибка отладки уведомлений: {e}")
