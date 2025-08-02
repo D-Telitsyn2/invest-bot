@@ -28,6 +28,7 @@ async def set_bot_commands():
         BotCommand(command="portfolio", description="💼 Показать портфель"),
         BotCommand(command="ideas", description="💡 Получить инвестиционные идеи"),
         BotCommand(command="history", description="📊 История операций"),
+        BotCommand(command="finances", description="💰 Финансовая статистика"),
         BotCommand(command="settings", description="⚙️ Настройки"),
         BotCommand(command="help", description="❓ Помощь")
     ]

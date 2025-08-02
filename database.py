@@ -191,11 +191,21 @@ async def save_order(user_id: int, ticker: str, quantity: int, price: float, ord
                 elif order_type.upper() == 'SELL':
                     await _update_position_sell(connection, user_id, ticker, quantity, price)
 
-                # Добавляем в историю
+                # Добавляем в историю с расчетом P&L
+                profit_loss = 0
+                if order_type.upper() == 'SELL':
+                    # Для продажи рассчитываем прибыль/убыток
+                    position = await connection.fetchrow(
+                        "SELECT avg_price FROM positions WHERE user_id = $1 AND ticker = $2",
+                        user_id, ticker
+                    )
+                    if position:
+                        profit_loss = (price - position['avg_price']) * quantity
+
                 await connection.execute("""
-                    INSERT INTO history (user_id, operation_type, ticker, quantity, price, total_amount)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, user_id, order_type.lower(), ticker, quantity, price, total_amount)
+                    INSERT INTO history (user_id, operation_type, ticker, quantity, price, total_amount, profit_loss)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, user_id, order_type.lower(), ticker, quantity, price, total_amount, profit_loss)
 
                 return True
             except asyncpg.UniqueViolationError:
@@ -342,6 +352,79 @@ async def get_portfolio_statistics(user_id: int) -> Dict[str, float]:
             WHERE user_id = $1 AND quantity > 0
         """, user_id)
         return dict(stats) if stats else {'total_cost': 0, 'total_value': 0}
+
+async def get_user_trading_stats(user_id: int) -> Dict:
+    """Получает детальную статистику торговли пользователя"""
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        # Общая статистика покупок и продаж
+        trading_stats = await connection.fetchrow("""
+            SELECT
+                COUNT(CASE WHEN operation_type = 'buy' THEN 1 END) as total_buys,
+                COUNT(CASE WHEN operation_type = 'sell' THEN 1 END) as total_sells,
+                COALESCE(SUM(CASE WHEN operation_type = 'buy' THEN total_amount ELSE 0 END), 0) as total_bought,
+                COALESCE(SUM(CASE WHEN operation_type = 'sell' THEN total_amount ELSE 0 END), 0) as total_sold,
+                COALESCE(SUM(profit_loss), 0) as realized_pnl,
+                COALESCE(SUM(commission), 0) as total_commission
+            FROM history
+            WHERE user_id = $1
+        """, user_id)
+
+        # Статистика по портфелю
+        portfolio_stats = await connection.fetchrow("""
+            SELECT
+                COALESCE(SUM(quantity * avg_price), 0) as portfolio_cost,
+                COALESCE(SUM(quantity * COALESCE(current_price, avg_price)), 0) as portfolio_value,
+                COUNT(*) as positions_count
+            FROM positions
+            WHERE user_id = $1 AND quantity > 0
+        """, user_id)
+
+        # Топ прибыльных позиций
+        top_positions = await connection.fetch("""
+            SELECT
+                ticker,
+                quantity,
+                avg_price,
+                COALESCE(current_price, avg_price) as current_price,
+                (COALESCE(current_price, avg_price) - avg_price) * quantity as unrealized_pnl,
+                CASE
+                    WHEN avg_price > 0 THEN ((COALESCE(current_price, avg_price) - avg_price) / avg_price) * 100
+                    ELSE 0
+                END as return_pct
+            FROM positions
+            WHERE user_id = $1 AND quantity > 0
+            ORDER BY unrealized_pnl DESC
+            LIMIT 5
+        """, user_id)
+
+        # История прибыльных сделок
+        profitable_trades = await connection.fetch("""
+            SELECT ticker, profit_loss, created_at
+            FROM history
+            WHERE user_id = $1 AND operation_type = 'sell' AND profit_loss > 0
+            ORDER BY profit_loss DESC
+            LIMIT 5
+        """, user_id)
+
+        result = {
+            'trading': dict(trading_stats) if trading_stats else {},
+            'portfolio': dict(portfolio_stats) if portfolio_stats else {},
+            'top_positions': [dict(row) for row in top_positions],
+            'profitable_trades': [dict(row) for row in profitable_trades]
+        }
+
+        # Вычисляем дополнительные метрики
+        if result['portfolio']['portfolio_cost'] > 0:
+            unrealized_pnl = result['portfolio']['portfolio_value'] - result['portfolio']['portfolio_cost']
+            result['portfolio']['unrealized_pnl'] = unrealized_pnl
+            result['portfolio']['unrealized_return_pct'] = (unrealized_pnl / result['portfolio']['portfolio_cost']) * 100
+
+        # Общий P&L (реализованный + нереализованный)
+        total_pnl = result['trading'].get('realized_pnl', 0) + result['portfolio'].get('unrealized_pnl', 0)
+        result['total_pnl'] = total_pnl
+
+        return result
 
 async def get_users_with_notification_type(notification_type: str) -> List[Dict]:
     """

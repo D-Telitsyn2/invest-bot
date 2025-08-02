@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from gpt_client import XAIClient
-from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity, get_user_settings, update_user_settings
+from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity, get_user_settings, update_user_settings, get_user_trading_stats
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ class InvestmentStates(StatesGroup):
     waiting_for_amount = State()
     waiting_for_risk_level = State()
     waiting_for_max_amount = State()
+    waiting_for_custom_price = State()  # Новое состояние для ввода пользовательской цены
 
 router = Router()
 
@@ -40,9 +41,10 @@ async def cmd_start(message: Message):
         ],
         [
             InlineKeyboardButton(text="📊 История", callback_data="history"),
-            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
+            InlineKeyboardButton(text="💰 Финансы", callback_data="finances")
         ],
         [
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"),
             InlineKeyboardButton(text="❓ Помощь", callback_data="help")
         ]
     ])
@@ -157,7 +159,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
         )
 
         if not ideas:
-            await message.answer("❌ Не удалось получить рекомендации для теста")
+            await message.answer("❌ Не удалось получить рекомендации")
             return
 
         # Сохраняем идеи в состоянии для последующего выбора
@@ -167,7 +169,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
         ideas_text = "🎯 *Инвестиционные идеи:*\n\n"
         keyboard_buttons = []
 
-        for i, idea in enumerate(ideas[:10], 1):  # Показываем максимум 10 идей
+        for i, idea in enumerate(ideas[:7], 1):  # Показываем максимум 7 идей для быстрого ответа
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
@@ -381,14 +383,65 @@ async def process_idea_selection(callback: CallbackQuery, state: FSMContext):
 📝 Обоснование:
 {selected_idea['reasoning']}
 
-Укажите сумму для инвестирования (в рублях):
+Выберите способ указания цены:
         """
 
-        await callback.message.answer(confirmation_text, parse_mode="Markdown")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Авто цена", callback_data="use_auto_price"),
+                InlineKeyboardButton(text="✏️ Своя цена", callback_data="use_custom_price")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_trade")
+            ]
+        ])
+
+        await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
         await state.update_data(selected_idea=selected_idea)
-        await state.set_state(InvestmentStates.waiting_for_amount)
 
     await callback.answer()
+
+@router.callback_query(F.data == "use_auto_price")
+async def use_auto_price(callback: CallbackQuery, state: FSMContext):
+    """Использование автоматической цены"""
+    await callback.answer()
+    await callback.message.answer("💰 Укажите сумму для инвестирования (в рублях):")
+    await state.set_state(InvestmentStates.waiting_for_amount)
+
+@router.callback_query(F.data == "use_custom_price")
+async def use_custom_price(callback: CallbackQuery, state: FSMContext):
+    """Использование пользовательской цены"""
+    await callback.answer()
+    await callback.message.answer("✏️ Введите желаемую цену за одну акцию (в рублях):")
+    await state.set_state(InvestmentStates.waiting_for_custom_price)
+
+@router.message(InvestmentStates.waiting_for_custom_price)
+async def process_custom_price(message: Message, state: FSMContext):
+    """Обработка пользовательской цены"""
+    try:
+        custom_price = float(message.text.replace(",", "."))
+
+        if custom_price <= 0:
+            await message.answer("❌ Цена должна быть больше 0")
+            return
+
+        data = await state.get_data()
+        selected_idea = data.get("selected_idea")
+
+        if not selected_idea:
+            await message.answer("❌ Идея не найдена. Начните заново с /ideas")
+            await state.clear()
+            return
+
+        # Обновляем цену в идее
+        selected_idea['price'] = custom_price
+        await state.update_data(selected_idea=selected_idea)
+
+        await message.answer(f"✅ Цена установлена: {custom_price:.2f} ₽\n\n💰 Теперь укажите сумму для инвестирования (в рублях):")
+        await state.set_state(InvestmentStates.waiting_for_amount)
+
+    except ValueError:
+        await message.answer("❌ Некорректная цена. Введите число (например: 250.50)")
 
 @router.message(InvestmentStates.waiting_for_amount)
 async def process_investment_amount(message: Message, state: FSMContext):
@@ -570,18 +623,21 @@ async def process_sell_stock(callback: CallbackQuery, state: FSMContext):
 💎 Стоимость позиции: *{current_value:.2f} ₽*
 📈 P&L: *{profit_loss:+.2f} ₽*
 
-Продать все акции по текущей цене?
+Выберите способ указания цены:
         """
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ Продать все", callback_data=f"confirm_sell_{ticker}"),
+                InlineKeyboardButton(text="📊 По текущей цене", callback_data=f"sell_auto_{ticker}"),
+                InlineKeyboardButton(text="✏️ Своя цена", callback_data=f"sell_custom_{ticker}")
+            ],
+            [
                 InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
             ]
         ])
 
         await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
-        await state.update_data(sell_ticker=ticker, sell_price=current_price, sell_quantity=quantity)
+        await state.update_data(sell_ticker=ticker, current_price=current_price, sell_quantity=quantity, avg_price=avg_price)
 
     except Exception as e:
         logger.error(f"Ошибка при обработке продажи {ticker}: {e}")
@@ -589,22 +645,152 @@ async def process_sell_stock(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-@router.callback_query(F.data.startswith("confirm_sell_"))
-async def confirm_sell_stock(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение продажи акции"""
-    ticker = callback.data.replace("confirm_sell_", "")
+@router.callback_query(F.data.startswith("sell_auto_"))
+async def confirm_sell_auto_price(callback: CallbackQuery, state: FSMContext):
+    """Продажа по текущей цене"""
+    ticker = callback.data.replace("sell_auto_", "")
+
+    try:
+        data = await state.get_data()
+        current_price = data.get("current_price")
+        sell_quantity = data.get("sell_quantity")
+        avg_price = data.get("avg_price")
+
+        if not all([current_price, sell_quantity]):
+            await callback.message.answer("❌ Ошибка: неполные данные для продажи")
+            await state.clear()
+            return
+
+        total_amount = sell_quantity * current_price
+        profit_loss = (current_price - avg_price) * sell_quantity
+
+        confirmation_text = f"""
+✅ *Подтверждение продажи:*
+
+📉 Продать: *{ticker}*
+🔢 Количество: *{sell_quantity} шт.*
+💰 Цена продажи: *{current_price:.2f} ₽*
+💎 Получите: *{total_amount:.2f} ₽*
+📈 P&L: *{profit_loss:+.2f} ₽*
+
+Подтвердить продажу?
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Продать", callback_data=f"final_sell_{ticker}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
+            ]
+        ])
+
+        await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+        await state.update_data(sell_price=current_price, total_amount=total_amount)
+
+    except Exception as e:
+        logger.error(f"Ошибка при подтверждении продажи {ticker}: {e}")
+        await callback.message.answer("❌ Ошибка при обработке продажи")
+
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("sell_custom_"))
+async def sell_custom_price(callback: CallbackQuery, state: FSMContext):
+    """Продажа по пользовательской цене"""
+    ticker = callback.data.replace("sell_custom_", "")
+
+    await callback.answer()
+    await callback.message.answer(f"✏️ Введите желаемую цену продажи для {ticker} (в рублях):")
+    await state.update_data(custom_sell_ticker=ticker)
+    await state.set_state(InvestmentStates.waiting_for_custom_price)
+
+@router.message(InvestmentStates.waiting_for_custom_price)
+async def process_custom_sell_price(message: Message, state: FSMContext):
+    """Обработка пользовательской цены продажи"""
+    try:
+        data = await state.get_data()
+
+        # Проверяем, это цена для покупки или продажи
+        if 'custom_sell_ticker' in data:
+            # Это продажа
+            custom_price = float(message.text.replace(",", "."))
+
+            if custom_price <= 0:
+                await message.answer("❌ Цена должна быть больше 0")
+                return
+
+            ticker = data.get("custom_sell_ticker")
+            sell_quantity = data.get("sell_quantity")
+            avg_price = data.get("avg_price")
+
+            if not all([ticker, sell_quantity]):
+                await message.answer("❌ Ошибка: неполные данные для продажи")
+                await state.clear()
+                return
+
+            total_amount = sell_quantity * custom_price
+            profit_loss = (custom_price - avg_price) * sell_quantity
+
+            confirmation_text = f"""
+✅ *Подтверждение продажи:*
+
+📉 Продать: *{ticker}*
+🔢 Количество: *{sell_quantity} шт.*
+💰 Цена продажи: *{custom_price:.2f} ₽*
+💎 Получите: *{total_amount:.2f} ₽*
+📈 P&L: *{profit_loss:+.2f} ₽*
+
+Подтвердить продажу?
+            """
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Продать", callback_data=f"final_sell_{ticker}"),
+                    InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
+                ]
+            ])
+
+            await message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+            await state.update_data(sell_price=custom_price, total_amount=total_amount)
+
+        else:
+            # Это покупка (существующий код)
+            custom_price = float(message.text.replace(",", "."))
+
+            if custom_price <= 0:
+                await message.answer("❌ Цена должна быть больше 0")
+                return
+
+            selected_idea = data.get("selected_idea")
+
+            if not selected_idea:
+                await message.answer("❌ Идея не найдена. Начните заново с /ideas")
+                await state.clear()
+                return
+
+            # Обновляем цену в идее
+            selected_idea['price'] = custom_price
+            await state.update_data(selected_idea=selected_idea)
+
+            await message.answer(f"✅ Цена установлена: {custom_price:.2f} ₽\n\n💰 Теперь укажите сумму для инвестирования (в рублях):")
+            await state.set_state(InvestmentStates.waiting_for_amount)
+
+    except ValueError:
+        await message.answer("❌ Некорректная цена. Введите число (например: 250.50)")
+
+@router.callback_query(F.data.startswith("final_sell_"))
+async def final_sell_confirmation(callback: CallbackQuery, state: FSMContext):
+    """Финальное подтверждение продажи"""
+    ticker = callback.data.replace("final_sell_", "")
 
     try:
         data = await state.get_data()
         sell_price = data.get("sell_price")
         sell_quantity = data.get("sell_quantity")
+        total_amount = data.get("total_amount")
 
-        if not all([sell_price, sell_quantity]):
+        if not all([sell_price, sell_quantity, total_amount]):
             await callback.message.answer("❌ Ошибка: неполные данные для продажи")
             await state.clear()
             return
-
-        total_amount = sell_quantity * sell_price
 
         # Выполняем продажу (сохраняем в базу)
         success = await save_order(
@@ -635,11 +821,12 @@ async def confirm_sell_stock(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
     except Exception as e:
-        logger.error(f"Ошибка при подтверждении продажи {ticker}: {e}")
+        logger.error(f"Ошибка при финальном подтверждении продажи {ticker}: {e}")
         await callback.message.answer("❌ Ошибка при выполнении продажи")
         await state.clear()
 
     await callback.answer()
+
 
 @router.callback_query(F.data == "cancel_sell")
 async def cancel_sell(callback: CallbackQuery, state: FSMContext):
@@ -678,11 +865,19 @@ async def cmd_history(message: Message):
             else:
                 date_str = "Неизвестно"
 
+            operation_emoji = "🛒" if order['order_type'].upper() == 'BUY' else "💸"
+            profit_loss = order.get('profit_loss', 0)
+
             history_text += f"📅 {date_str}\n"
-            history_text += f"📈 {order['ticker']}: {order['quantity']} шт.\n"
+            history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"📊 Операция: {order['order_type']}\n"
-            history_text += f"💎 Сумма: {order['total_amount']:.2f} ₽\n\n"
+            history_text += f"� Сумма: {order['total_amount']:.2f} ₽\n"
+
+            if order['order_type'].upper() == 'SELL' and profit_loss != 0:
+                pnl_emoji = "📈" if profit_loss >= 0 else "📉"
+                history_text += f"{pnl_emoji} P&L: {profit_loss:+.2f} ₽\n"
+
+            history_text += "\n"
 
         await message.answer(history_text, parse_mode="Markdown")
 
@@ -796,6 +991,105 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     # Затем выполняем основную логику получения идей
     await cmd_ideas(callback.message, state)
 
+@router.callback_query(F.data == "finances")
+async def show_finances_callback(callback: CallbackQuery):
+    """Показать финансовую статистику"""
+    try:
+        await callback.answer("💰 Загружаю финансовую статистику...")
+
+        stats = await get_user_trading_stats(callback.from_user.id)
+
+        if not stats:
+            await callback.message.answer("💰 Финансовая статистика пуста")
+            return
+
+        # Формируем сообщение со статистикой
+        message = "💰 *Финансовая статистика*\n\n"
+
+        # Общие торговые данные
+        trading = stats.get('trading', {})
+        message += "📊 *Торговая активность:*\n"
+        message += f"🛒 Покупок: {trading.get('total_buys', 0)}\n"
+        message += f"💸 Продаж: {trading.get('total_sells', 0)}\n"
+        message += f"💰 Куплено на: {trading.get('total_bought', 0):,.0f} ₽\n"
+        message += f"💎 Продано на: {trading.get('total_sold', 0):,.0f} ₽\n"
+        message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n"
+        message += f"💼 Комиссии: {trading.get('total_commission', 0):,.0f} ₽\n\n"
+
+        # Статистика портфеля
+        portfolio = stats.get('portfolio', {})
+        message += "💼 *Текущий портфель:*\n"
+        message += f"🔢 Позиций: {portfolio.get('positions_count', 0)}\n"
+        message += f"💰 Вложено: {portfolio.get('portfolio_cost', 0):,.0f} ₽\n"
+        message += f"💎 Стоимость: {portfolio.get('portfolio_value', 0):,.0f} ₽\n"
+        message += f"📈 Нереализованная прибыль: {portfolio.get('unrealized_pnl', 0):+,.0f} ₽ ({portfolio.get('unrealized_return_pct', 0):+.1f}%)\n\n"
+
+        # Общий P&L
+        total_pnl = stats.get('total_pnl', 0)
+        pnl_emoji = "📈" if total_pnl >= 0 else "📉"
+        message += f"{pnl_emoji} *Общий P&L: {total_pnl:+,.0f} ₽*\n\n"
+
+        # Топ позиции
+        top_positions = stats.get('top_positions', [])
+        if top_positions:
+            message += "🏆 *Топ позиции по прибыли:*\n"
+            for i, pos in enumerate(top_positions[:3], 1):
+                pnl_emoji = "📈" if pos['unrealized_pnl'] >= 0 else "📉"
+                message += f"{i}. {pos['ticker']}: {pnl_emoji} {pos['unrealized_pnl']:+,.0f} ₽ ({pos['return_pct']:+.1f}%)\n"
+
+        # Прибыльные сделки
+        profitable_trades = stats.get('profitable_trades', [])
+        if profitable_trades:
+            message += "\n💎 *Лучшие сделки:*\n"
+            for i, trade in enumerate(profitable_trades[:3], 1):
+                date_str = trade['created_at'].strftime('%d.%m.%Y') if trade.get('created_at') else 'N/A'
+                message += f"{i}. {trade['ticker']}: +{trade['profit_loss']:,.0f} ₽ ({date_str})\n"
+
+        await callback.message.answer(message, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе финансовой статистики: {e}")
+        await callback.message.answer("❌ Ошибка при получении финансовой статистики")
+
+@router.message(Command("finances"))
+async def cmd_finances(message: Message):
+    """Показать финансовую статистику (команда)"""
+    try:
+        stats = await get_user_trading_stats(message.from_user.id)
+
+        if not stats:
+            await message.answer("💰 Финансовая статистика пуста")
+            return
+
+        # Повторяем ту же логику форматирования
+        finance_message = "💰 *Финансовая статистика*\n\n"
+
+        trading = stats.get('trading', {})
+        finance_message += "📊 *Торговая активность:*\n"
+        finance_message += f"🛒 Покупок: {trading.get('total_buys', 0)}\n"
+        finance_message += f"💸 Продаж: {trading.get('total_sells', 0)}\n"
+        finance_message += f"💰 Куплено на: {trading.get('total_bought', 0):,.0f} ₽\n"
+        finance_message += f"💎 Продано на: {trading.get('total_sold', 0):,.0f} ₽\n"
+        finance_message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n"
+        finance_message += f"💼 Комиссии: {trading.get('total_commission', 0):,.0f} ₽\n\n"
+
+        portfolio = stats.get('portfolio', {})
+        finance_message += "💼 *Текущий портфель:*\n"
+        finance_message += f"🔢 Позиций: {portfolio.get('positions_count', 0)}\n"
+        finance_message += f"💰 Вложено: {portfolio.get('portfolio_cost', 0):,.0f} ₽\n"
+        finance_message += f"💎 Стоимость: {portfolio.get('portfolio_value', 0):,.0f} ₽\n"
+        finance_message += f"📈 Нереализованная прибыль: {portfolio.get('unrealized_pnl', 0):+,.0f} ₽ ({portfolio.get('unrealized_return_pct', 0):+.1f}%)\n\n"
+
+        total_pnl = stats.get('total_pnl', 0)
+        pnl_emoji = "📈" if total_pnl >= 0 else "📉"
+        finance_message += f"{pnl_emoji} *Общий P&L: {total_pnl:+,.0f} ₽*"
+
+        await message.answer(finance_message, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе финансовой статистики: {e}")
+        await message.answer("❌ Ошибка при получении финансовой статистики")
+
 @router.callback_query(F.data == "history")
 async def show_history_callback(callback: CallbackQuery):
     """Показать историю через callback"""
@@ -817,11 +1111,19 @@ async def show_history_callback(callback: CallbackQuery):
             else:
                 date_str = "Неизвестно"
 
+            operation_emoji = "🛒" if order['order_type'].upper() == 'BUY' else "💸"
+            profit_loss = order.get('profit_loss', 0)
+
             history_text += f"📅 {date_str}\n"
-            history_text += f"📈 {order['ticker']}: {order['quantity']} шт.\n"
+            history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"📊 Операция: {order['order_type']}\n"
-            history_text += f"💎 Сумма: {order['total_amount']:.2f} ₽\n\n"
+            history_text += f"� Сумма: {order['total_amount']:.2f} ₽\n"
+
+            if order['order_type'].upper() == 'SELL' and profit_loss != 0:
+                pnl_emoji = "📈" if profit_loss >= 0 else "📉"
+                history_text += f"{pnl_emoji} P&L: {profit_loss:+.2f} ₽\n"
+
+            history_text += "\n"
         await callback.message.edit_text(history_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")

@@ -130,7 +130,7 @@ class SchedulerService:
                         message += f"📈 *Свежие инвестиционные идеи для вас:*\n\n"
 
                         for i, idea in enumerate(ideas[:3], 1):  # Топ-3 для уведомлений
-                            current_price = idea.get('current_price', 0)
+                            current_price = idea.get('price', 0)  # Исправлено: используем 'price' вместо 'current_price'
                             target_price = idea.get('target_price', 0)
                             potential_return = ((target_price - current_price) / current_price * 100) if current_price > 0 else 0
 
