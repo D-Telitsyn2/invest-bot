@@ -99,7 +99,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
 
         ideas_text = "🚀 *Инвестиционные идеи от xAI Grok:*\n\n"
 
-        for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 15 идей
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 5 идей
             ideas_text += f"*{i}. {idea['ticker']}*\n"
             ideas_text += f"📊 Рекомендация: {idea['action']}\n"
             ideas_text += f"💰 Цена: {idea['price']:.2f} ₽\n"
