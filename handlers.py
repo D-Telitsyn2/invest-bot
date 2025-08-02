@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from gpt_client import XAIClient, get_investment_ideas
+from gpt_client import XAIClient
 from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity, get_user_settings, update_user_settings
 
 logger = logging.getLogger(__name__)
@@ -152,16 +152,68 @@ async def cmd_ideas(message: Message, state: FSMContext):
             await message.answer("❌ Не удалось получить рекомендации для теста")
             return
 
+        # Сохраняем идеи в состоянии для последующего выбора
+        await state.update_data(investment_ideas=ideas)
+
         # Формируем сообщение с идеями
         ideas_text = "🎯 *Инвестиционные идеи от xAI Grok:*\n\n"
-        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей
-            ideas_text += f"*{i}. {idea.get('symbol', 'N/A')}*\n"
-            ideas_text += f"💰 Цена: ${idea.get('price', 'N/A')}\n"
-            ideas_text += f"📈 Прогноз: {idea.get('target_price', 'N/A')}\n"
-            ideas_text += f"📊 Рейтинг: {idea.get('rating', 'N/A')}\n"
-            ideas_text += f"💡 {idea.get('reasoning', 'Нет описания')}\n\n"
+        keyboard_buttons = []
 
-        await message.answer(ideas_text, parse_mode="Markdown")
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей
+            ticker = idea.get('ticker', 'N/A')
+            price = idea.get('price', 0)
+            target_price = idea.get('target_price', 0)
+            action = idea.get('action', 'BUY')
+            reasoning = idea.get('reasoning', 'Нет описания')
+
+            # Рассчитываем потенциальную доходность
+            potential_return = 0
+            if price > 0 and target_price > 0:
+                potential_return = ((target_price - price) / price) * 100
+
+            # Определяем рейтинг на основе потенциальной доходности
+            if potential_return > 30:
+                rating = "⭐⭐⭐ СИЛЬНАЯ ПОКУПКА"
+            elif potential_return > 15:
+                rating = "⭐⭐ ПОКУПКА"
+            elif potential_return > 5:
+                rating = "⭐ УМЕРЕННАЯ ПОКУПКА"
+            else:
+                rating = "➖ НЕЙТРАЛЬНО"
+
+            ideas_text += f"*{i}. {ticker}*\n"
+            ideas_text += f"💰 Цена: {price:.2f} ₽\n"
+            ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
+            ideas_text += f"📊 Рейтинг: {rating}\n"
+            ideas_text += f"💡 {reasoning}\n\n"
+
+            # Добавляем кнопку для покупки этой идеи
+            if i <= 2:  # Первый ряд - первые 2 идеи
+                if len(keyboard_buttons) == 0:
+                    keyboard_buttons.append([])
+                keyboard_buttons[0].append(
+                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
+                )
+            elif i <= 4:  # Второй ряд - следующие 2 идеи
+                if len(keyboard_buttons) == 1:
+                    keyboard_buttons.append([])
+                keyboard_buttons[1].append(
+                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
+                )
+            else:  # Третий ряд - последняя идея
+                if len(keyboard_buttons) == 2:
+                    keyboard_buttons.append([])
+                keyboard_buttons[2].append(
+                    InlineKeyboardButton(text=f"💳 Купить {ticker}", callback_data=f"select_idea_{i-1}")
+                )
+
+        # Добавляем кнопку обновления идей
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🔄 Обновить идеи", callback_data="get_ideas")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await message.answer(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка при получении инвестиционных идей: {e}")
@@ -945,7 +997,8 @@ async def test_notifications(message: Message):
     await message.answer("🧪 *Тест уведомлений запущен...*", parse_mode="Markdown")
 
     # Получаем рекомендации
-    ideas = await get_investment_ideas(
+    xai_client = XAIClient()
+    ideas = await xai_client.get_investment_ideas(
         budget=settings['max_investment_amount'],
         risk_level=settings['risk_level']
     )
@@ -1002,7 +1055,3 @@ async def back_to_menu(callback: CallbackQuery):
 
     await callback.message.edit_text(welcome_text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
-
-def register_handlers(dp):
-    """Регистрация всех обработчиков"""
-    dp.include_router(router)
