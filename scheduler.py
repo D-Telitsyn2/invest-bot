@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from database import update_prices_in_portfolio, get_portfolio_statistics
-from tinkoff_client import get_price
 from gpt_client import get_investment_ideas
 
 logger = logging.getLogger(__name__)
@@ -62,19 +61,9 @@ class SchedulerService:
     async def update_market_prices(self):
         """Обновление цен акций в рабочее время"""
         try:
-            # Список популярных тикеров для обновления
-            tickers = ["SBER", "GAZP", "YNDX", "LKOH", "ROSN", "NVTK", "TCSG", "PLZL", "GMKN", "MAGN"]
-
-            price_updates = {}
-
-            for ticker in tickers:
-                price = await get_price(ticker)
-                if price:
-                    price_updates[ticker] = price
-
-            if price_updates:
-                await update_prices_in_portfolio(price_updates)
-                logger.info(f"Обновлены цены для {len(price_updates)} инструментов")
+            logger.info("⏰ Задача обновления цен запущена")
+            # Примечание: Обновление цен временно отключено
+            # В будущем здесь будет интеграция с биржевыми API
 
         except Exception as e:
             logger.error(f"Ошибка при обновлении цен: {e}")

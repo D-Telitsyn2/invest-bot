@@ -7,7 +7,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from gpt_client import XAIClient
-from tinkoff_client import TinkoffClient
 from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity
 
 logger = logging.getLogger(__name__)
@@ -49,7 +48,7 @@ async def cmd_start(message: Message):
 Я помогу вам:
 • 💡 Получать инвестиционные идеи от AI
 • 💼 Управлять портфелем
-• 📈 Выполнять сделки через Tinkoff Invest
+• 📈 Получать инвестиционные рекомендации от ИИ
 • 📊 Отслеживать историю операций
 
 Выберите действие из меню ниже:
@@ -212,47 +211,16 @@ async def confirm_trade(callback: CallbackQuery, state: FSMContext):
         quantity = data.get("quantity")
         total_cost = data.get("total_cost")
 
-        # Здесь будет выполнение сделки через Tinkoff API
-        tinkoff_client = TinkoffClient()
-
-        # Симуляция выполнения сделки
-        order_result = await tinkoff_client.place_order(
-            ticker=selected_idea['ticker'],
-            quantity=quantity,
-            price=selected_idea['price'],
-            direction="buy" if selected_idea['action'] == "BUY" else "sell"
+        # Симуляция выполнения сделки (торговля отключена)
+        await callback.message.edit_text(
+            "❌ Торговля через бота временно недоступна.\n"
+            "Используйте полученные рекомендации для торговли в вашем брокерском приложении.",
+            reply_markup=None
         )
 
-        if order_result['success']:
-            # Сохраняем сделку в базу данных
-            await save_order(
-                user_id=callback.from_user.id,
-                ticker=selected_idea['ticker'],
-                quantity=quantity,
-                price=selected_idea['price'],
-                order_type=selected_idea['action'],
-                total_amount=total_cost
-            )
-
-            success_text = f"""
-🎉 *Сделка выполнена успешно!*
-
-📈 Тикер: *{selected_idea['ticker']}*
-🔢 Количество: *{quantity} шт.*
-💰 Цена: *{selected_idea['price']:.2f} ₽*
-💎 Общая сумма: *{total_cost:.2f} ₽*
-📋 ID заявки: *{order_result['order_id']}*
-            """
-
-            await callback.message.answer(success_text, parse_mode="Markdown")
-        else:
-            await callback.message.answer(f"❌ Ошибка при выполнении сделки: {order_result['error']}")
-
-        await state.clear()
-
     except Exception as e:
-        logger.error(f"Ошибка при выполнении сделки: {e}")
-        await callback.message.answer("❌ Произошла ошибка при выполнении сделки")
+        logger.error(f"Ошибка при выполнении операции: {e}")
+        await callback.message.answer("❌ Произошла ошибка при выполнении операции")
         await state.clear()
 
     await callback.answer()

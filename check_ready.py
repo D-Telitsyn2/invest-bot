@@ -10,7 +10,7 @@ from pathlib import Path
 def check_files():
     """Проверка наличия всех необходимых файлов"""
     required_files = [
-        'main.py', 'handlers.py', 'gpt_client.py', 'tinkoff_client.py',
+        'main.py', 'handlers.py', 'gpt_client.py',
         'database.py', 'scheduler.py', 'config.py', 'requirements.txt',
         '.env', 'README.md'
     ]
@@ -28,7 +28,7 @@ def check_env():
     load_dotenv()
 
     required_vars = ['OPENAI_API_KEY']
-    optional_vars = ['TELEGRAM_BOT_TOKEN', 'TINKOFF_TOKEN']
+    optional_vars = ['TELEGRAM_BOT_TOKEN']
 
     env_status = {}
     for var in required_vars + optional_vars:

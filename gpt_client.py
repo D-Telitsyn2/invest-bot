@@ -70,45 +70,48 @@ class XAIClient:
             risk_level: Уровень риска (low, medium, high)
 
         Returns:
-            List[Dict]: Список инвестиционных идей
+            List[Dict]: Список инвестиционных идей или пустой список если ошибка
         """
+        if not self.api_key:
+            logger.error("xAI API ключ не настроен")
+            return []
+
         try:
-            # Если нет API ключа, используем улучшенные данные
-            if not self.api_key:
-                logger.info("Используются улучшенные данные для инвестиционных идей")
-                return await self._get_fallback_ideas()
-
             prompt = f"""
-Ты - опытный инвестиционный аналитик российского рынка. Проанализируй текущую ситуацию на MOEX и предложи 3-5 конкретных инвестиционных идей.
+Ты - ведущий инвестиционный аналитик российского рынка. Проанализируй текущую ситуацию на MOEX и предложи 3-5 конкретных инвестиционных идей.
 
-Параметры:
+ВАЖНО:
+- Выбери РАЗНООБРАЗНЫЕ компании из РАЗНЫХ секторов (банки, IT, энергетика, металлургия, телеком, ритейл и др.)
+- Используй ТОЛЬКО реальные российские тикеры, торгующиеся на MOEX
+- Укажи актуальные рыночные цены (не выдумывай их)
+- Составь список компаний САМОСТОЯТЕЛЬНО, основываясь на текущей рыночной ситуации
+
+Параметры анализа:
 - Бюджет: {budget} рублей
 - Уровень риска: {risk_level}
 - Рынок: Российские акции (MOEX)
+- Дата анализа: Август 2025
 
-Для каждой идеи укажи:
-1. Тикер акции (ТОЛЬКО реальные российские тикеры)
-2. Рекомендуемое действие (BUY/SELL/HOLD)
-3. Текущую примерную цену
-4. Целевую цену
-5. Краткое обоснование (1-2 предложения)
-
-ВАЖНО: Используй только реальные российские тикеры: SBER, GAZP, LUKOIL, YNDX, VTB, NVTK, TCSG, GMKN, NLMK, MTSS, MAIL, OZON, FIVE, MGNT, AFLT, FESH, ROSN, MAGN, CHMF, RTKM и другие ликвидные акции MOEX.
+Учитывай:
+- Текущие макроэкономические тренды в России
+- Сезонные факторы
+- Геополитическую ситуацию
+- Отраслевые перспективы
 
 Формат ответа - строго JSON массив:
 [
   {{
     "ticker": "SBER",
-    "action": "BUY",
-    "price": 280.50,
-    "target_price": 320.00,
-    "reasoning": "Сбербанк показывает стабильный рост прибыли на фоне высоких процентных ставок"
+    "action": "BUY/SELL/HOLD",
+    "price": 0.0,
+    "target_price": 0.0,
+    "reasoning": "Детальное обоснование с анализом компании и сектора"
   }}
 ]
 """
 
             messages = [
-                {"role": "system", "content": "Ты профессиональный инвестиционный аналитик российского рынка с 15+ лет опыта. Знаешь все о MOEX и российских компаниях."},
+                {"role": "system", "content": "Ты топовый инвестиционный аналитик российского рынка с глубокими знаниями MOEX. Ты САМ выбираешь наиболее перспективные компании из разных секторов для анализа, а не используешь заранее заданные списки. Твои рекомендации основаны на актуальной рыночной ситуации."},
                 {"role": "user", "content": prompt}
             ]
 
@@ -126,50 +129,14 @@ class XAIClient:
                 return ideas
             else:
                 logger.error("xAI не вернул корректный JSON")
-                return await self._get_fallback_ideas()
+                return []
 
         except json.JSONDecodeError as e:
             logger.error(f"Ошибка парсинга JSON от xAI: {e}")
-            return await self._get_fallback_ideas()
+            return []
         except Exception as e:
             logger.error(f"Ошибка при получении идей от xAI: {e}")
-            return await self._get_fallback_ideas()
-
-    async def _get_fallback_ideas(self) -> List[Dict]:
-        """Улучшенные резервные инвестиционные идеи с реальными данными"""
-        try:
-            # Получаем разнообразные идеи с реальными ценами
-            return await get_diverse_investment_ideas(count=4)
-        except Exception as e:
-            logger.error(f"Ошибка получения улучшенных идей: {e}")
-            # В крайнем случае используем минимальный fallback с реальными тикерами
-            logger.warning("Используется минимальный fallback с реальными данными")
-
-            # Получаем реальные цены хотя бы для базовых акций
-            try:
-                market = RealMarketData()
-                fallback_stocks = ["SBER", "GAZP", "YNDX"]
-                ideas = []
-
-                for ticker in fallback_stocks:
-                    price = await market.get_realistic_price(ticker)
-                    stock_info = market.russian_stocks.get(ticker, {})
-
-                    ideas.append({
-                        "ticker": ticker,
-                        "action": "HOLD",
-                        "price": price,
-                        "target_price": price * 1.15,  # +15% цель
-                        "reasoning": f"{stock_info.get('name', ticker)} - стабильная российская компания с хорошими перспективами"
-                    })
-
-                await market.close_session()
-                return ideas
-
-            except Exception as fallback_error:
-                logger.error(f"Критическая ошибка fallback: {fallback_error}")
-                # Самый крайний случай - возвращаем пустой список
-                return []
+            return []
 
     async def analyze_stock(self, ticker: str) -> Dict:
         """
@@ -179,22 +146,13 @@ class XAIClient:
             ticker: Тикер акции
 
         Returns:
-            Dict: Анализ акции
+            Dict: Анализ акции или ошибка
         """
-        try:
-            # Если нет API ключа, используем заглушки
-            if not self.api_key:
-                logger.info(f"Используются демо-данные для анализа {ticker}")
-                return {
-                    "ticker": ticker,
-                    "recommendation": "HOLD",
-                    "target_price": 300.0,
-                    "risk_level": "medium",
-                    "analysis": f"Демо-анализ для {ticker}. Компания показывает стабильные результаты.",
-                    "pros": ["Стабильная выручка", "Хорошие дивиденды"],
-                    "cons": ["Высокая волатильность", "Зависимость от макроэкономики"]
-                }
+        if not self.api_key:
+            logger.error("xAI API ключ не настроен")
+            return {"error": "API ключ не настроен"}
 
+        try:
             prompt = f"""
 Проанализируй акцию {ticker} на российском рынке MOEX. Дай профессиональный инвестиционный анализ.
 
@@ -204,21 +162,14 @@ class XAIClient:
   "recommendation": "BUY/HOLD/SELL",
   "target_price": 0.0,
   "risk_level": "low/medium/high",
-  "analysis": "Подробный анализ компании, её финансового состояния и перспектив",
-  "pros": ["плюс 1", "плюс 2", "плюс 3"],
+  "analysis": "Подробный анализ компании",
+  "pros": ["плюс 1", "плюс 2"],
   "cons": ["минус 1", "минус 2"]
 }}
-
-Учитывай:
-- Текущую макроэкономическую ситуацию в России
-- Финансовые показатели компании
-- Отраслевые тренды и перспективы
-- Геополитические факторы
-- Технический анализ
 """
 
             messages = [
-                {"role": "system", "content": "Ты топовый инвестиционный аналитик российского фондового рынка с экспертизой в MOEX и российских компаниях."},
+                {"role": "system", "content": "Ты топовый инвестиционный аналитик российского фондового рынка."},
                 {"role": "user", "content": prompt}
             ]
 
