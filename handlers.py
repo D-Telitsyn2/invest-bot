@@ -326,6 +326,24 @@ async def cmd_analyze_stock(message: Message):
                 await message.answer(f"❌ Ошибка анализа: {analysis['error']}")
             return
 
+        # Дополнительная валидация данных анализа
+        current_price = analysis.get("current_price")
+        target_price = analysis.get("target_price")
+
+        # Проверяем корректность цен
+        if target_price and current_price:
+            # Если целевая цена слишком далека от текущей (более чем в 5 раз), корректируем
+            if target_price > current_price * 5 or target_price < current_price * 0.2:
+                logger.warning(f"Некорректная целевая цена {target_price} для {ticker} при текущей {current_price}, корректируем")
+                recommendation = analysis.get('recommendation', 'HOLD')
+                if recommendation == 'BUY':
+                    target_price = current_price * 1.20  # +20%
+                elif recommendation == 'SELL':
+                    target_price = current_price * 0.85  # -15%
+                else:  # HOLD
+                    target_price = current_price * 1.05  # +5%
+                analysis['target_price'] = round(target_price, 2)
+
         # Формируем ответ с анализом
         recommendation_emoji = {
             "BUY": "🟢 ПОКУПАТЬ",
@@ -339,10 +357,12 @@ async def cmd_analyze_stock(message: Message):
             "high": "🔴 Высокий"
         }.get(analysis.get("risk_level", "medium"), "🟡 Средний")
 
-        # Получаем текущую цену с MOEX
-        from market_data import market_data
-        current_prices = await market_data.get_multiple_moex_prices([ticker])
-        current_price = current_prices.get(ticker)
+        # Получаем текущую цену (либо из анализа, либо отдельно с MOEX)
+        current_price = analysis.get("current_price")
+        if not current_price:
+            from market_data import market_data
+            current_prices = await market_data.get_multiple_moex_prices([ticker])
+            current_price = current_prices.get(ticker)
 
         analysis_text = f"📊 *Анализ акции {ticker}*\n\n"
 

@@ -238,27 +238,48 @@ class XAIClient:
             return {"error": "API ключ не настроен"}
 
         try:
+            # Сначала получаем текущую цену с MOEX
+            from market_data import market_data
+            current_prices = await market_data.get_multiple_moex_prices([ticker])
+            current_price = current_prices.get(ticker)
+
+            if not current_price:
+                return {"error": f"Акция {ticker} не найдена на MOEX или не торгуется"}
+
+            # Создаем более детальный промпт с текущей ценой
             prompt = f"""
-Проанализируй акцию {ticker} на российском рынке MOEX. Дай профессиональный инвестиционный анализ.
+Проанализируй акцию {ticker} на российском рынке MOEX.
+
+ВАЖНАЯ ИНФОРМАЦИЯ:
+- Текущая цена: {current_price:.2f} рублей
+- Нужен реалистичный анализ с адекватной целевой ценой
+
+ТРЕБОВАНИЯ К ЦЕЛЕВОЙ ЦЕНЕ:
+- Целевая цена должна быть в разумном диапазоне от текущей цены
+- Для стабильных компаний: ±50% от текущей цены максимум
+- Для волатильных/растущих: ±100% от текущей цены максимум
+- Цена должна быть больше 0 и выражена в рублях
 
 Предоставь анализ в формате JSON:
 {{
   "ticker": "{ticker}",
   "recommendation": "BUY/HOLD/SELL",
-  "target_price": 0.0,
+  "target_price": {current_price:.2f},
   "risk_level": "low/medium/high",
-  "analysis": "Подробный анализ компании",
-  "pros": ["плюс 1", "плюс 2"],
-  "cons": ["минус 1", "минус 2"]
+  "analysis": "Подробный анализ компании с учетом текущей ситуации",
+  "pros": ["конкретный плюс 1", "конкретный плюс 2"],
+  "cons": ["конкретный минус 1", "конкретный минус 2"]
 }}
+
+ОБЯЗАТЕЛЬНО укажи реалистичную целевую цену в рублях исходя из текущей цены {current_price:.2f} ₽!
 """
 
             messages = [
-                {"role": "system", "content": "Ты топовый инвестиционный аналитик российского фондового рынка."},
+                {"role": "system", "content": f"Ты топовый инвестиционный аналитик российского фондового рынка. Текущая цена {ticker}: {current_price:.2f} ₽. Анализируй на основе реальных данных и давай адекватные прогнозы цен."},
                 {"role": "user", "content": prompt}
             ]
 
-            data = await self._make_request(messages, max_tokens=1200, temperature=0.5)
+            data = await self._make_request(messages, max_tokens=1500, temperature=0.3)
             content = data['choices'][0]['message']['content'].strip()
 
             start_idx = content.find('{')
@@ -267,7 +288,28 @@ class XAIClient:
             if start_idx != -1 and end_idx != -1:
                 json_str = content[start_idx:end_idx]
                 analysis = json.loads(json_str)
-                logger.info(f"✅ xAI Grok проанализировал {ticker}")
+
+                # Валидация и коррекция целевой цены
+                target_price = analysis.get('target_price', current_price)
+
+                # Проверяем, что целевая цена адекватна
+                if target_price <= 0 or target_price > current_price * 3 or target_price < current_price * 0.3:
+                    logger.warning(f"Некорректная целевая цена {target_price} для {ticker}, используем консервативную оценку")
+                    # Устанавливаем консервативную целевую цену в зависимости от рекомендации
+                    recommendation = analysis.get('recommendation', 'HOLD')
+                    if recommendation == 'BUY':
+                        target_price = current_price * 1.15  # +15%
+                    elif recommendation == 'SELL':
+                        target_price = current_price * 0.90  # -10%
+                    else:  # HOLD
+                        target_price = current_price * 1.05  # +5%
+
+                    analysis['target_price'] = round(target_price, 2)
+
+                # Добавляем текущую цену в результат
+                analysis['current_price'] = current_price
+
+                logger.info(f"✅ xAI Grok проанализировал {ticker}: текущая {current_price:.2f} ₽, целевая {analysis['target_price']:.2f} ₽")
                 return analysis
             else:
                 return {"error": "Не удалось получить анализ"}
