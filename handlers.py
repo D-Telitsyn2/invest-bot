@@ -171,23 +171,10 @@ async def cmd_ideas(message: Message, state: FSMContext):
             if price > 0 and target_price > 0:
                 potential_return = ((target_price - price) / price) * 100
 
-            # Определяем рейтинг на основе потенциальной доходности
-            if potential_return > 30:
-                rating = "⭐⭐⭐ СИЛЬНАЯ ПОКУПКА"
-            elif potential_return > 15:
-                rating = "⭐⭐ ПОКУПКА"
-            elif potential_return > 5:
-                rating = "⭐ УМЕРЕННАЯ ПОКУПКА"
-            else:
-                rating = "➖ НЕЙТРАЛЬНО"
-
-            ideas_text += f"*{i}. {ticker}*\n"
+            ideas_text += f"*{i}.* `{ticker}`\n"
             ideas_text += f"💰 Цена: {price:.2f} ₽\n"
             ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
-            ideas_text += f"📊 Рейтинг: {rating}\n"
-            ideas_text += f"💡 {reasoning}\n\n"
-
-            # Добавляем кнопку для покупки этой идеи
+            ideas_text += f" {reasoning}\n\n"            # Добавляем кнопку для покупки этой идеи
             if i <= 2:  # Первый ряд - первые 2 идеи
                 if len(keyboard_buttons) == 0:
                     keyboard_buttons.append([])
@@ -280,58 +267,70 @@ async def show_notification_settings(callback: CallbackQuery):
 @router.callback_query(F.data == "toggle_daily_analysis")
 async def toggle_daily_analysis(callback: CallbackQuery):
     """Переключение ежедневного анализа"""
-    settings = await get_user_settings(callback.from_user.id)
-    new_value = not settings.get('daily_market_analysis', True)
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+        new_value = not settings.get('daily_market_analysis', True)
 
-    await update_user_settings(callback.from_user.id, daily_market_analysis=new_value)
+        await update_user_settings(callback.from_user.id, daily_market_analysis=new_value)
+        logger.info(f"Пользователь {callback.from_user.id}: ежедневный анализ -> {new_value}")
 
-    status = "включен" if new_value else "отключен"
-    await callback.message.answer(f"✅ Ежедневный анализ рынка {status}")
+        # Возвращаемся к настройкам уведомлений
+        await show_notification_settings(callback)
 
-    # Возвращаемся к настройкам уведомлений
-    await show_notification_settings(callback)
+    except Exception as e:
+        logger.error(f"Ошибка toggle_daily_analysis: {e}")
+        await callback.answer("❌ Ошибка при изменении настройки")
 
 @router.callback_query(F.data == "toggle_weekly_report")
 async def toggle_weekly_report(callback: CallbackQuery):
     """Переключение еженедельного отчета"""
-    settings = await get_user_settings(callback.from_user.id)
-    new_value = not settings.get('weekly_portfolio_report', True)
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+        new_value = not settings.get('weekly_portfolio_report', True)
 
-    await update_user_settings(callback.from_user.id, weekly_portfolio_report=new_value)
+        await update_user_settings(callback.from_user.id, weekly_portfolio_report=new_value)
+        logger.info(f"Пользователь {callback.from_user.id}: еженедельный отчет -> {new_value}")
 
-    status = "включен" if new_value else "отключен"
-    await callback.message.answer(f"✅ Еженедельный отчет {status}")
+        # Возвращаемся к настройкам уведомлений
+        await show_notification_settings(callback)
 
-    # Возвращаемся к настройкам уведомлений
-    await show_notification_settings(callback)
+    except Exception as e:
+        logger.error(f"Ошибка toggle_weekly_report: {e}")
+        await callback.answer("❌ Ошибка при изменении настройки")
 
 @router.callback_query(F.data == "toggle_target_alerts")
 async def toggle_target_alerts(callback: CallbackQuery):
     """Переключение уведомлений о целевых ценах"""
-    settings = await get_user_settings(callback.from_user.id)
-    new_value = not settings.get('target_price_alerts', True)
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+        new_value = not settings.get('target_price_alerts', True)
 
-    await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
+        await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
+        logger.info(f"Пользователь {callback.from_user.id}: целевые цены -> {new_value}")
 
-    status = "включены" if new_value else "отключены"
-    await callback.message.answer(f"✅ Уведомления о целевых ценах {status}")
+        # Возвращаемся к настройкам уведомлений
+        await show_notification_settings(callback)
 
-    # Возвращаемся к настройкам уведомлений
-    await show_notification_settings(callback)
+    except Exception as e:
+        logger.error(f"Ошибка toggle_target_alerts: {e}")
+        await callback.answer("❌ Ошибка при изменении настройки")
 
 @router.callback_query(F.data == "toggle_price_updates")
 async def toggle_price_updates(callback: CallbackQuery):
     """Переключение обновлений цен"""
-    settings = await get_user_settings(callback.from_user.id)
-    new_value = not settings.get('price_updates', False)
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+        new_value = not settings.get('price_updates', False)
 
-    await update_user_settings(callback.from_user.id, price_updates=new_value)
+        await update_user_settings(callback.from_user.id, price_updates=new_value)
+        logger.info(f"Пользователь {callback.from_user.id}: обновления цен -> {new_value}")
 
-    status = "включены" if new_value else "отключены"
-    await callback.message.answer(f"✅ Обновления цен {status}")
+        # Возвращаемся к настройкам уведомлений
+        await show_notification_settings(callback)
 
-    # Возвращаемся к настройкам уведомлений
-    await show_notification_settings(callback)
+    except Exception as e:
+        logger.error(f"Ошибка toggle_price_updates: {e}")
+        await callback.answer("❌ Ошибка при изменении настройки")
 
 def register_handlers(dp):
     """Регистрация всех обработчиков"""
@@ -972,16 +971,23 @@ async def process_max_amount(message: Message, state: FSMContext):
 @router.callback_query(F.data == "toggle_notifications")
 async def toggle_notifications(callback: CallbackQuery):
     """Переключение уведомлений"""
-    settings = await get_user_settings(callback.from_user.id)
-    new_notifications = not settings['notifications']
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+        new_notifications = not settings['notifications']
 
-    await update_user_settings(callback.from_user.id, notifications=new_notifications)
+        await update_user_settings(callback.from_user.id, notifications=new_notifications)
+        logger.info(f"Пользователь {callback.from_user.id}: общие уведомления -> {new_notifications}")
 
-    status = "включены" if new_notifications else "отключены"
-    await callback.message.answer(f"✅ Уведомления {status}")
+        # Если переключаем в окне уведомлений, возвращаемся туда
+        if "уведомлений" in callback.message.text:
+            await show_notification_settings(callback)
+        else:
+            # Иначе возвращаемся к основным настройкам
+            await show_settings(callback)
 
-    # Возвращаемся к настройкам
-    await show_settings(callback)
+    except Exception as e:
+        logger.error(f"Ошибка toggle_notifications: {e}")
+        await callback.answer("❌ Ошибка при изменении настройки")
 
 @router.message(Command("test_notifications"))
 async def test_notifications(message: Message):

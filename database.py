@@ -323,10 +323,10 @@ async def get_user_settings(user_id: int) -> Dict:
                 'max_investment_amount': row['max_investment_amount'],
                 'auto_invest': row['auto_invest'],
                 'notifications': row['notifications'],
-                'daily_market_analysis': row[4] if len(row) > 4 else True,  # 5-й столбец
-                'weekly_portfolio_report': row[5] if len(row) > 5 else True,  # 6-й столбец
-                'target_price_alerts': row[6] if len(row) > 6 else True,  # 7-й столбец
-                'price_updates': row[7] if len(row) > 7 else False  # 8-й столбец
+                'daily_market_analysis': row['daily_market_analysis'],
+                'weekly_portfolio_report': row['weekly_portfolio_report'],
+                'target_price_alerts': row['target_price_alerts'],
+                'price_updates': row['price_updates']
             }
         else:
             # Возвращаем настройки по умолчанию
