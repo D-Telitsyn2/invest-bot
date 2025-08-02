@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from gpt_client import get_investment_ideas
+from gpt_client import GPTClient
 from tinkoff_client import TinkoffClient
 from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity
 
@@ -22,6 +22,8 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     """Обработчик команды /start"""
+    logger.info(f"Получена команда /start от пользователя {message.from_user.id} (@{message.from_user.username})")
+
     # Создаем пользователя в базе данных
     await create_user(
         telegram_id=message.from_user.id,
@@ -89,7 +91,8 @@ async def cmd_ideas(message: Message, state: FSMContext):
 
     try:
         # Получаем идеи от GPT
-        ideas = await get_investment_ideas(budget=10000)
+        gpt_client = GPTClient()
+        ideas = await gpt_client.get_investment_ideas(budget=10000)
 
         if not ideas:
             await message.answer("❌ Не удалось получить идеи. Попробуйте позже.")

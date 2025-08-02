@@ -5,6 +5,7 @@ from typing import List, Dict
 import openai
 import os
 from dotenv import load_dotenv
+from market_data import get_diverse_investment_ideas, market_data
 
 load_dotenv()
 
@@ -33,10 +34,10 @@ class GPTClient:
             List[Dict]: Список инвестиционных идей
         """
         try:
-            # Если нет API ключа, используем заглушки
+            # Если нет API ключа, используем улучшенные данные
             if not self.client:
-                logger.info("Используются демо-данные для инвестиционных идей")
-                return self._get_fallback_ideas()
+                logger.info("Используются улучшенные данные для инвестиционных идей")
+                return await self._get_fallback_ideas()
 
             prompt = f"""
 Ты - опытный инвестиционный аналитик. Проанализируй текущую ситуацию на российском фондовом рынке и предложи 3-5 инвестиционных идей.
@@ -89,37 +90,29 @@ class GPTClient:
                 return ideas
             else:
                 logger.error("GPT не вернул корректный JSON")
-                return self._get_fallback_ideas()
+                return await self._get_fallback_ideas()
 
         except Exception as e:
             logger.error(f"Ошибка при получении идей от GPT: {e}")
-            return self._get_fallback_ideas()
+            return await self._get_fallback_ideas()
 
-    def _get_fallback_ideas(self) -> List[Dict]:
-        """Резервные инвестиционные идеи на случай ошибки GPT"""
-        return [
-            {
-                "ticker": "SBER",
-                "action": "BUY",
-                "price": 280.50,
-                "target_price": 320.00,
-                "reasoning": "Крупнейший банк России с стабильными показателями"
-            },
-            {
-                "ticker": "GAZP",
-                "action": "BUY",
-                "price": 175.20,
-                "target_price": 200.00,
-                "reasoning": "Энергетический гигант с высокими дивидендами"
-            },
-            {
-                "ticker": "YNDX",
-                "action": "BUY",
-                "price": 2650.00,
-                "target_price": 3000.00,
-                "reasoning": "Технологический лидер с потенциалом роста"
-            }
-        ]
+    async def _get_fallback_ideas(self) -> List[Dict]:
+        """Улучшенные резервные инвестиционные идеи с реальными данными"""
+        try:
+            # Получаем разнообразные идеи с реальными ценами
+            return await get_diverse_investment_ideas(count=4)
+        except Exception as e:
+            logger.error(f"Ошибка получения улучшенных идей: {e}")
+            # В крайнем случае возвращаем базовые идеи
+            return [
+                {
+                    "ticker": "SBER",
+                    "action": "BUY",
+                    "price": 280.50,
+                    "target_price": 320.00,
+                    "reasoning": "Крупнейший банк России с стабильными показателями"
+                }
+            ]
 
     async def analyze_stock(self, ticker: str) -> Dict:
         """
