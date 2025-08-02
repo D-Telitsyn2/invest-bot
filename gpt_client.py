@@ -15,8 +15,16 @@ class XAIClient:
     def __init__(self):
         self.api_key = os.getenv('XAI_API_KEY')
         self.base_url = "https://api.x.ai/v1/chat/completions"
-        # Попробуем разные модели xAI в порядке приоритета (избегаем дорогую grok-4)
-        self.models = ["grok-3", "grok-3-fast", "grok-2-1212", "grok-2"]
+        self.models = [
+            "grok-4-0709",
+            "grok-3-mini-fast",
+            "grok-3-mini",
+            "grok-3-fast",
+            "grok-3",
+            "grok-2-vision-1212",
+            "grok-2-image-1212",
+            "grok-2-1212"
+        ]
         if not self.api_key:
             logger.warning("xAI API ключ не найден - используется демо режим")
         else:
