@@ -17,7 +17,7 @@
 ```
 ✅ Получено 5 идей от xAI Grok!
 1. SBER - BUY (280.5 ₽ → 320.0 ₽)
-2. GAZP - BUY (155.0 ₽ → 175.0 ₽)  
+2. GAZP - BUY (155.0 ₽ → 175.0 ₽)
 3. NVTK - BUY (1400.0 ₽ → 1550.0 ₽)
 4. GMKN - HOLD (22000.0 ₽ → 23000.0 ₽)
 5. MTSS - BUY (300.0 ₽ → 340.0 ₽)
@@ -40,13 +40,13 @@
 ```python
 class XAIClient:
     models = ["grok-2-1212", "grok-2", "grok-1", "grok-beta"]
-    
+
     async def _make_request():
         # Автоматически пробует модели по очереди
-        
+
     async def get_investment_ideas():
         # Получение идей с умными промптами
-        
+
     async def analyze_stock():
         # Детальный анализ российских акций
 ```

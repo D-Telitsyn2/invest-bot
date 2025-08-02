@@ -1,7 +1,15 @@
 import asyncio
 import logging
-import grpc
-import os
+impo        """
+        try:
+            # Используем реальные данные из market_data
+            from market_data import RealMarketData
+
+            market = RealMarketData()
+            price = await market.get_realistic_price(ticker)
+            await market.close_session()
+
+            return price
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from datetime import datetime
@@ -34,32 +42,15 @@ class TinkoffClient:
             float: Текущая цена или None если ошибка
         """
         try:
-            # Заглушка - в реальности здесь будет запрос к Tinkoff API
-            mock_prices = {
-                "SBER": 280.50,
-                "GAZP": 175.20,
-                "YNDX": 2650.00,
-                "LKOH": 6800.00,
-                "ROSN": 550.30,
-                "NVTK": 1180.40,
-                "TCSG": 7200.00,
-                "PLZL": 2980.00,
-                "GMKN": 18500.00,
-                "MAGN": 52.80
-            }
+            # Используем реальные данные из market_data
+            from market_data import RealMarketData
 
-            # Симуляция задержки API
-            await asyncio.sleep(0.1)
+            market = RealMarketData()
+            price = await market.get_realistic_price(ticker)
+            await market.close_session()
 
-            price = mock_prices.get(ticker)
-            if price:
-                # Добавляем небольшую случайную вариацию цены
-                import random
-                variation = random.uniform(-0.02, 0.02)  # ±2%
-                return round(price * (1 + variation), 2)
-
-            logger.warning(f"Цена для тикера {ticker} не найдена")
-            return None
+            logger.info(f"Получена цена для {ticker}: {price} ₽")
+            return price
 
         except Exception as e:
             logger.error(f"Ошибка при получении цены для {ticker}: {e}")

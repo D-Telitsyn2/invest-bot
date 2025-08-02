@@ -5,7 +5,7 @@ from typing import List, Dict
 import aiohttp
 import os
 from dotenv import load_dotenv
-from market_data import get_diverse_investment_ideas, market_data
+from market_data import get_diverse_investment_ideas, market_data, RealMarketData
 
 load_dotenv()
 
@@ -24,7 +24,7 @@ class XAIClient:
 
     async def _make_request(self, messages: list, max_tokens: int = 1500, temperature: float = 0.7) -> dict:
         """Делает запрос к xAI API с автоматическим переключением моделей"""
-        
+
         for model in self.models:
             try:
                 headers = {
@@ -53,11 +53,11 @@ class XAIClient:
                             error_text = await response.text()
                             logger.error(f"xAI API error {response.status} с моделью {model}: {error_text}")
                             continue
-                            
+
             except Exception as e:
                 logger.error(f"Ошибка с моделью {model}: {e}")
                 continue
-        
+
         # Если все модели не работают
         raise Exception("Все модели xAI недоступны")
 
@@ -142,16 +142,34 @@ class XAIClient:
             return await get_diverse_investment_ideas(count=4)
         except Exception as e:
             logger.error(f"Ошибка получения улучшенных идей: {e}")
-            # В крайнем случае возвращаем базовые идеи
-            return [
-                {
-                    "ticker": "SBER",
-                    "action": "BUY",
-                    "price": 280.50,
-                    "target_price": 320.00,
-                    "reasoning": "Крупнейший банк России с стабильными показателями"
-                }
-            ]
+            # В крайнем случае используем минимальный fallback с реальными тикерами
+            logger.warning("Используется минимальный fallback с реальными данными")
+
+            # Получаем реальные цены хотя бы для базовых акций
+            try:
+                market = RealMarketData()
+                fallback_stocks = ["SBER", "GAZP", "YNDX"]
+                ideas = []
+
+                for ticker in fallback_stocks:
+                    price = await market.get_realistic_price(ticker)
+                    stock_info = market.russian_stocks.get(ticker, {})
+
+                    ideas.append({
+                        "ticker": ticker,
+                        "action": "HOLD",
+                        "price": price,
+                        "target_price": price * 1.15,  # +15% цель
+                        "reasoning": f"{stock_info.get('name', ticker)} - стабильная российская компания с хорошими перспективами"
+                    })
+
+                await market.close_session()
+                return ideas
+
+            except Exception as fallback_error:
+                logger.error(f"Критическая ошибка fallback: {fallback_error}")
+                # Самый крайний случай - возвращаем пустой список
+                return []
 
     async def analyze_stock(self, ticker: str) -> Dict:
         """
