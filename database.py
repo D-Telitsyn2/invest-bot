@@ -7,7 +7,16 @@ import os
 
 logger = logging.getLogger(__name__)
 
-DATABASE_PATH = "invest_bot.db"
+# Определяем путь к базе данных на основе среды
+if os.getenv('RAILWAY_ENVIRONMENT'):
+    # Railway с постоянным хранилищем
+    DATABASE_PATH = "/app/data/invest_bot.db"
+    os.makedirs("/app/data", exist_ok=True)
+    logger.info("� Railway: используется постоянное хранилище")
+else:
+    # Локальная разработка
+    DATABASE_PATH = "invest_bot.db"
+    logger.info("� Локально: используется invest_bot.db")
 
 async def init_db():
     """Инициализация базы данных"""

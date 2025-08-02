@@ -6,3 +6,8 @@ startCommand = "python main.py"
 
 [env]
 PYTHONUNBUFFERED = "1"
+
+# Постоянное хранение для SQLite базы данных
+[[volumes]]
+name = "database"
+mount_path = "/app/data"
