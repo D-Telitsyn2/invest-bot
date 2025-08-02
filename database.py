@@ -441,7 +441,11 @@ async def get_users_with_notification_type(notification_type: str) -> List[Dict]
         """
         try:
             rows = await connection.fetch(query)
-            return [dict(row) for row in rows]
+            logger.info(f"Найдено {len(rows)} пользователей с включенным {notification_type}")
+            result = [dict(row) for row in rows]
+            for user in result:
+                logger.info(f"Пользователь: {user['user_id']} ({user.get('username', 'no_username')})")
+            return result
         except asyncpg.exceptions.UndefinedColumnError:
             logger.warning(f"Колонка {notification_type} не найдена в user_settings. Возвращен пустой список.")
             return []

@@ -1466,6 +1466,132 @@ async def test_notifications(message: Message):
     else:
         await message.answer("❌ Не удалось получить рекомендации для теста")
 
+@router.message(Command("force_daily"))
+async def force_daily_analysis(message: Message):
+    """Принудительный запуск ежедневного анализа для отладки"""
+    try:
+        await message.answer("🔧 Принудительный запуск ежедневного анализа...")
+
+        # Импортируем планировщик
+        from scheduler import scheduler_service
+
+        # Запускаем ежедневный анализ принудительно
+        await scheduler_service.daily_market_analysis()
+
+        await message.answer("✅ Ежедневный анализ выполнен! Проверьте логи для деталей.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при принудительном запуске анализа: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+@router.message(Command("force_weekly"))
+async def force_weekly_report(message: Message):
+    """Принудительный запуск еженедельного отчета для отладки"""
+    try:
+        await message.answer("🔧 Принудительный запуск еженедельного отчета...")
+
+        from scheduler import scheduler_service
+        await scheduler_service.weekly_portfolio_report()
+
+        await message.answer("✅ Еженедельный отчет выполнен!")
+
+    except Exception as e:
+        logger.error(f"Ошибка при принудительном запуске еженедельного отчета: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+@router.message(Command("force_targets"))
+async def force_target_check(message: Message):
+    """Принудительная проверка целевых цен для отладки"""
+    try:
+        await message.answer("🔧 Принудительная проверка целевых цен...")
+
+        from scheduler import scheduler_service
+        await scheduler_service.check_target_prices()
+
+        await message.answer("✅ Проверка целевых цен выполнена!")
+
+    except Exception as e:
+        logger.error(f"Ошибка при принудительной проверке целевых цен: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+@router.message(Command("force_prices"))
+async def force_price_update(message: Message):
+    """Принудительное обновление цен для отладки"""
+    try:
+        await message.answer("🔧 Принудительное обновление цен...")
+
+        from scheduler import scheduler_service
+        await scheduler_service.update_market_prices()
+
+        await message.answer("✅ Обновление цен выполнено!")
+
+    except Exception as e:
+        logger.error(f"Ошибка при принудительном обновлении цен: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+@router.message(Command("debug_notifications"))
+async def debug_notifications(message: Message):
+    """Отладка настроек уведомлений"""
+    try:
+        user_id = message.from_user.id
+
+        # Проверяем настройки пользователя
+        settings = await get_user_settings(user_id)
+
+        debug_info = f"🔍 *Отладка уведомлений для пользователя {user_id}*\n\n"
+
+        if settings:
+            debug_info += "✅ *Настройки найдены:*\n"
+            debug_info += f"• notifications: {settings.get('notifications', 'не задано')}\n"
+            debug_info += f"• daily_market_analysis: {settings.get('daily_market_analysis', 'не задано')}\n"
+            debug_info += f"• weekly_portfolio_report: {settings.get('weekly_portfolio_report', 'не задано')}\n"
+            debug_info += f"• target_price_alerts: {settings.get('target_price_alerts', 'не задано')}\n"
+            debug_info += f"• price_updates: {settings.get('price_updates', 'не задано')}\n\n"
+        else:
+            debug_info += "❌ *Настройки НЕ найдены в БД*\n\n"
+
+        # Проверяем, есть ли пользователь в списках для разных типов уведомлений
+        from database import get_users_with_notification_type
+        notification_types = [
+            ('daily_market_analysis', '🌅 Ежедневная сводка'),
+            ('weekly_portfolio_report', '📊 Еженедельный отчет'),
+            ('target_price_alerts', '🎯 Целевые цены'),
+            ('price_updates', '⏰ Обновления цен')
+        ]
+
+        for notification_type, description in notification_types:
+            try:
+                users = await get_users_with_notification_type(notification_type)
+                user_in_list = any(u['user_id'] == user_id for u in users)
+                debug_info += f"{description}: {'✅ Да' if user_in_list else '❌ Нет'} ({len(users)} всего)\n"
+            except Exception as e:
+                debug_info += f"{description}: ❌ Ошибка проверки - {e}\n"
+
+        debug_info += "\n"
+
+        # Проверяем планировщик
+        from scheduler import scheduler_service
+        if scheduler_service.is_running:
+            debug_info += "⏰ *Планировщик:* ✅ Запущен\n"
+            jobs = scheduler_service.list_jobs()
+            debug_info += f"⏰ *Активных задач:* {len(jobs)}\n"
+            for job in jobs:
+                debug_info += f"  • {job['name']} (следующий запуск: {job['next_run']})\n"
+        else:
+            debug_info += "⏰ *Планировщик:* ❌ Остановлен\n"
+
+        debug_info += "\n🔧 *Команды для тестирования:*\n"
+        debug_info += "• `/force_daily` - Ежедневная сводка\n"
+        debug_info += "• `/force_weekly` - Еженедельный отчет\n"
+        debug_info += "• `/force_targets` - Целевые цены\n"
+        debug_info += "• `/force_prices` - Обновление цен"
+
+        await message.answer(debug_info, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка отладки уведомлений: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: CallbackQuery):
     """Возврат в главное меню"""

@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from database import (
     update_prices_in_portfolio, get_portfolio_statistics,
     get_users_with_notification_type, get_user_portfolio_for_notifications,
-    check_target_prices_achieved
+    check_target_prices_achieved, get_user_settings
 )
 from gpt_client import get_investment_ideas
 from market_data import RealMarketData
@@ -24,6 +24,17 @@ class SchedulerService:
     async def start(self):
         """Запуск планировщика"""
         if not self.is_running:
+            # Проверяем подключение к БД перед запуском
+            try:
+                from database import get_pool
+                pool = await get_pool()
+                async with pool.acquire() as connection:
+                    await connection.fetchval("SELECT 1")
+                logger.info("✅ Подключение к базе данных успешно")
+            except Exception as e:
+                logger.error(f"❌ Ошибка подключения к БД: {e}")
+                logger.error("Планировщик запущен, но уведомления могут не работать")
+
             # Обновление цен каждые 5 минут в рабочее время
             self.scheduler.add_job(
                 self.update_market_prices,
@@ -80,19 +91,39 @@ class SchedulerService:
         try:
             logger.info("⏰ Обновление цен акций...")
 
-            # Получаем всех пользователей с портфелями (для обновления цен)
+            # Получаем всех пользователей с включенными уведомлениями об обновлении цен
             users = await get_users_with_notification_type('price_updates')
             if not users:
+                logger.info("Нет пользователей с включенными обновлениями цен")
                 return
 
-            # Собираем уникальные тикеры из всех портфелей
-            unique_tickers = set()
+            # Фильтруем пользователей с включенными общими уведомлениями
+            active_users = []
             for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    if user_settings and user_settings.get('notifications', True):
+                        active_users.append(user)
+                except Exception as e:
+                    logger.error(f"Ошибка получения настроек пользователя {user['user_id']}: {e}")
+
+            if not active_users:
+                logger.info("Нет активных пользователей для обновления цен")
+                return
+
+            # Собираем уникальные тикеры из всех портфелей активных пользователей
+            unique_tickers = set()
+            user_portfolios = {}
+
+            for user in active_users:
                 portfolio = await get_user_portfolio_for_notifications(user['user_id'])
-                for position in portfolio:
-                    unique_tickers.add(position['ticker'])
+                if portfolio:
+                    user_portfolios[user['user_id']] = portfolio
+                    for position in portfolio:
+                        unique_tickers.add(position['ticker'])
 
             if not unique_tickers:
+                logger.info("Нет тикеров для обновления цен")
                 return
 
             # Получаем актуальные цены
@@ -100,23 +131,113 @@ class SchedulerService:
             try:
                 prices = await market_data.get_multiple_moex_prices(list(unique_tickers))
                 if prices:
+                    # Обновляем цены в базе данных
                     await update_prices_in_portfolio(prices)
                     logger.info(f"Обновлены цены для {len(prices)} акций")
+
+                    # Отправляем уведомления пользователям о значительных изменениях цен
+                    await self._send_price_update_notifications(active_users, user_portfolios, prices)
+
             finally:
                 await market_data.close_session()
 
         except Exception as e:
             logger.error(f"Ошибка при обновлении цен: {e}")
 
+    async def _send_price_update_notifications(self, users, user_portfolios, new_prices):
+        """Отправляет уведомления о значительных изменениях цен"""
+        if not self.bot:
+            return
+
+        for user in users:
+            try:
+                portfolio = user_portfolios.get(user['user_id'], [])
+                if not portfolio:
+                    continue
+
+                significant_changes = []
+
+                for position in portfolio:
+                    ticker = position['ticker']
+                    old_price = position.get('current_price', position['avg_price'])
+                    new_price = new_prices.get(ticker)
+
+                    if new_price and old_price:
+                        change_percent = ((new_price - old_price) / old_price) * 100
+
+                        # Уведомляем о изменениях больше 3%
+                        if abs(change_percent) >= 3:
+                            significant_changes.append({
+                                'ticker': ticker,
+                                'old_price': old_price,
+                                'new_price': new_price,
+                                'change_percent': change_percent,
+                                'quantity': position['quantity']
+                            })
+
+                if significant_changes:
+                    message = "📈 *Значительные изменения цен в вашем портфеле:*\n\n"
+
+                    for change in significant_changes:
+                        emoji = "📈" if change['change_percent'] > 0 else "📉"
+                        message += f"{emoji} *{change['ticker']}*\n"
+                        message += f"💰 {change['old_price']:.2f} ₽ → {change['new_price']:.2f} ₽\n"
+                        message += f"📊 Изменение: {change['change_percent']:+.1f}%\n"
+
+                        position_change = (change['new_price'] - change['old_price']) * change['quantity']
+                        message += f"💼 Ваша позиция: {position_change:+,.0f} ₽\n\n"
+
+                    await self.bot.send_message(
+                        chat_id=user['user_id'],
+                        text=message,
+                        parse_mode="Markdown"
+                    )
+
+                    # Небольшая пауза между отправками
+                    await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.error(f"Ошибка при отправке уведомления об изменении цен пользователю {user['user_id']}: {e}")
+
     async def daily_market_analysis(self):
         """Ежедневный анализ рынка"""
         try:
             logger.info("📊 Ежедневный анализ рынка...")
 
-            # Получаем пользователей с включенными ежедневными уведомлениями
-            users = await get_users_with_notification_type('daily_market_analysis')
+            # Проверяем, есть ли у нас бот для отправки сообщений
+            if not self.bot:
+                logger.error("❌ Бот не инициализирован для отправки уведомлений")
+                return
 
+            # Получаем пользователей с включенными ежедневными уведомлениями
+            try:
+                users = await get_users_with_notification_type('daily_market_analysis')
+                logger.info(f"Найдено {len(users)} пользователей с включенной ежедневной сводкой")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей из БД: {e}")
+                return
+
+            # Фильтруем пользователей с включенными общими уведомлениями
+            active_users = []
             for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    logger.info(f"Пользователь {user['user_id']}: настройки = {user_settings}")
+                    if user_settings and user_settings.get('notifications', True):
+                        active_users.append(user)
+                        logger.info(f"Пользователь {user['user_id']} добавлен в активные")
+                    else:
+                        logger.info(f"Пользователь {user['user_id']} пропущен (notifications = False)")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка получения настроек пользователя {user['user_id']}: {e}")
+
+            logger.info(f"Активных пользователей для отправки: {len(active_users)}")
+
+            if not active_users:
+                logger.info("⚠️ Нет активных пользователей для отправки ежедневной сводки")
+                return
+
+            for user in active_users:
                 try:
                     # Получаем персональные рекомендации
                     ideas = await get_investment_ideas(
@@ -161,10 +282,36 @@ class SchedulerService:
         try:
             logger.info("📊 Генерация еженедельных отчетов...")
 
-            # Получаем пользователей с включенными еженедельными отчетами
-            users = await get_users_with_notification_type('weekly_portfolio_report')
+            # Проверяем, есть ли у нас бот для отправки сообщений
+            if not self.bot:
+                logger.error("❌ Бот не инициализирован для отправки еженедельных отчетов")
+                return
 
+            # Получаем пользователей с включенными еженедельными отчетами
+            try:
+                users = await get_users_with_notification_type('weekly_portfolio_report')
+                logger.info(f"Найдено {len(users)} пользователей с включенными еженедельными отчетами")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей для еженедельных отчетов: {e}")
+                return
+
+            # Фильтруем пользователей с включенными общими уведомлениями
+            active_users = []
             for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    if user_settings and user_settings.get('notifications', True):
+                        active_users.append(user)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка получения настроек пользователя {user['user_id']}: {e}")
+
+            logger.info(f"Активных пользователей для еженедельных отчетов: {len(active_users)}")
+
+            if not active_users:
+                logger.info("⚠️ Нет активных пользователей для отправки еженедельных отчетов")
+                return
+
+            for user in active_users:
                 try:
                     # Получаем портфель пользователя
                     portfolio = await get_user_portfolio_for_notifications(user['user_id'])
@@ -220,10 +367,36 @@ class SchedulerService:
         try:
             logger.info("🎯 Проверка целевых цен...")
 
-            # Получаем пользователей с включенными уведомлениями о целевых ценах
-            users = await get_users_with_notification_type('target_price_alerts')
+            # Проверяем, есть ли у нас бот для отправки сообщений
+            if not self.bot:
+                logger.error("❌ Бот не инициализирован для отправки уведомлений о целевых ценах")
+                return
 
+            # Получаем пользователей с включенными уведомлениями о целевых ценах
+            try:
+                users = await get_users_with_notification_type('target_price_alerts')
+                logger.info(f"Найдено {len(users)} пользователей с включенными уведомлениями о целевых ценах")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей для целевых цен: {e}")
+                return
+
+            # Фильтруем пользователей с включенными общими уведомлениями
+            active_users = []
             for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    if user_settings and user_settings.get('notifications', True):
+                        active_users.append(user)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка получения настроек пользователя {user['user_id']}: {e}")
+
+            logger.info(f"Активных пользователей для проверки целевых цен: {len(active_users)}")
+
+            if not active_users:
+                logger.info("⚠️ Нет активных пользователей для проверки целевых цен")
+                return
+
+            for user in active_users:
                 try:
                     # Проверяем достижение целевых цен
                     achieved_targets = await check_target_prices_achieved(user['user_id'])
