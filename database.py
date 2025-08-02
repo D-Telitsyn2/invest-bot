@@ -344,6 +344,18 @@ async def get_user_settings(user_id: int) -> Dict:
 async def update_user_settings(user_id: int, **settings):
     """Обновление настроек пользователя"""
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Сначала убедимся, что запись пользователя существует
+        cursor = await db.execute("SELECT 1 FROM user_settings WHERE user_id = ?", (user_id,))
+        user_exists = await cursor.fetchone()
+        
+        if not user_exists:
+            # Создаем запись с настройками по умолчанию
+            await db.execute("""
+                INSERT INTO user_settings (user_id)
+                VALUES (?)
+            """, (user_id,))
+            await db.commit()
+        
         # Формируем запрос динамически
         set_clauses = []
         values = []
@@ -364,6 +376,7 @@ async def update_user_settings(user_id: int, **settings):
 
             await db.execute(query, values)
             await db.commit()
+            logger.info(f"Настройки пользователя {user_id} обновлены: {settings}")
 
 async def get_portfolio_statistics(user_id: int) -> Dict:
     """Получение статистики портфеля"""

@@ -268,7 +268,7 @@ async def toggle_daily_analysis(callback: CallbackQuery):
         await update_user_settings(callback.from_user.id, daily_market_analysis=new_value)
         logger.info(f"Пользователь {callback.from_user.id}: ежедневный анализ -> {new_value}")
 
-        # Возвращаемся к настройкам уведомлений
+        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
         await show_notification_settings(callback)
 
     except Exception as e:
@@ -285,7 +285,7 @@ async def toggle_weekly_report(callback: CallbackQuery):
         await update_user_settings(callback.from_user.id, weekly_portfolio_report=new_value)
         logger.info(f"Пользователь {callback.from_user.id}: еженедельный отчет -> {new_value}")
 
-        # Возвращаемся к настройкам уведомлений
+        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
         await show_notification_settings(callback)
 
     except Exception as e:
@@ -302,7 +302,7 @@ async def toggle_target_alerts(callback: CallbackQuery):
         await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
         logger.info(f"Пользователь {callback.from_user.id}: целевые цены -> {new_value}")
 
-        # Возвращаемся к настройкам уведомлений
+        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
         await show_notification_settings(callback)
 
     except Exception as e:
@@ -319,7 +319,7 @@ async def toggle_price_updates(callback: CallbackQuery):
         await update_user_settings(callback.from_user.id, price_updates=new_value)
         logger.info(f"Пользователь {callback.from_user.id}: обновления цен -> {new_value}")
 
-        # Возвращаемся к настройкам уведомлений
+        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
         await show_notification_settings(callback)
 
     except Exception as e:
@@ -876,7 +876,10 @@ async def show_settings(callback: CallbackQuery):
                 InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
             ],
             [
-                InlineKeyboardButton(text="🔔 Уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🔔 Общие уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🔧 Настройки уведомлений", callback_data="notification_settings")
+            ],
+            [
                 InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")
             ]
         ])
