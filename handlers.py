@@ -6,8 +6,8 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from gpt_client import XAIClient
-from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity
+from gpt_client import XAIClient, get_investment_ideas
+from database import get_user_portfolio, save_order, get_order_history, create_user, update_user_activity, get_user_settings, update_user_settings
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class InvestmentStates(StatesGroup):
     waiting_for_confirmation = State()
     waiting_for_amount = State()
+    waiting_for_risk_level = State()
+    waiting_for_max_amount = State()
 
 router = Router()
 
@@ -38,6 +40,9 @@ async def cmd_start(message: Message):
         ],
         [
             InlineKeyboardButton(text="📊 История", callback_data="history"),
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
+        ],
+        [
             InlineKeyboardButton(text="❓ Помощь", callback_data="help")
         ]
     ])
@@ -133,15 +138,139 @@ async def cmd_ideas(message: Message, state: FSMContext):
     await message.answer("🤖 Анализирую рынок с помощью xAI Grok...")
 
     try:
-        # Получаем идеи от xAI Grok
+        # Получаем настройки пользователя
+        settings = await get_user_settings(message.from_user.id)
+
+        # Получаем идеи от xAI Grok с учетом настроек
         xai_client = XAIClient()
-        ideas = await xai_client.get_investment_ideas(budget=10000)
+        ideas = await xai_client.get_investment_ideas(
+            budget=settings['max_investment_amount'],
+            risk_level=settings['risk_level']
+        )
 
         if not ideas:
-            await message.answer("❌ Не удалось получить идеи. Попробуйте позже.")
+            await message.answer("❌ Не удалось получить рекомендации для теста")
+
+@router.callback_query(F.data == "notification_settings")
+async def show_notification_settings(callback: CallbackQuery):
+    """Показать детальные настройки уведомлений"""
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+
+        settings_text = f"""
+🔔 *Настройки уведомлений*
+
+📊 *Общие уведомления:* {'✅' if settings['notifications'] else '❌'}
+
+*Детальные настройки:*
+🌅 *Ежедневная сводка* (9:00): {'✅' if settings.get('daily_market_analysis', True) else '❌'}
+📊 *Еженедельный отчет* (вс 20:00): {'✅' if settings.get('weekly_portfolio_report', True) else '❌'}
+🎯 *Целевые цены* (каждые 30 мин): {'✅' if settings.get('target_price_alerts', True) else '❌'}
+⏰ *Обновления цен* (каждые 5 мин): {'✅' if settings.get('price_updates', False) else '❌'}
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Общие уведомления",
+                    callback_data="toggle_notifications"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌅 Ежедневная сводка",
+                    callback_data="toggle_daily_analysis"
+                ),
+                InlineKeyboardButton(
+                    text="📊 Еженедельный отчет",
+                    callback_data="toggle_weekly_report"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎯 Целевые цены",
+                    callback_data="toggle_target_alerts"
+                ),
+                InlineKeyboardButton(
+                    text="⏰ Обновления цен",
+                    callback_data="toggle_price_updates"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад к настройкам", callback_data="settings")
+            ]
+        ])
+
+        await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе настроек уведомлений: {e}")
+        await callback.message.answer("❌ Ошибка при получении настроек")
+
+    await callback.answer()
+
+@router.callback_query(F.data == "toggle_daily_analysis")
+async def toggle_daily_analysis(callback: CallbackQuery):
+    """Переключение ежедневного анализа"""
+    settings = await get_user_settings(callback.from_user.id)
+    new_value = not settings.get('daily_market_analysis', True)
+
+    await update_user_settings(callback.from_user.id, daily_market_analysis=new_value)
+
+    status = "включен" if new_value else "отключен"
+    await callback.message.answer(f"✅ Ежедневный анализ рынка {status}")
+
+    # Возвращаемся к настройкам уведомлений
+    await show_notification_settings(callback)
+
+@router.callback_query(F.data == "toggle_weekly_report")
+async def toggle_weekly_report(callback: CallbackQuery):
+    """Переключение еженедельного отчета"""
+    settings = await get_user_settings(callback.from_user.id)
+    new_value = not settings.get('weekly_portfolio_report', True)
+
+    await update_user_settings(callback.from_user.id, weekly_portfolio_report=new_value)
+
+    status = "включен" if new_value else "отключен"
+    await callback.message.answer(f"✅ Еженедельный отчет {status}")
+
+    # Возвращаемся к настройкам уведомлений
+    await show_notification_settings(callback)
+
+@router.callback_query(F.data == "toggle_target_alerts")
+async def toggle_target_alerts(callback: CallbackQuery):
+    """Переключение уведомлений о целевых ценах"""
+    settings = await get_user_settings(callback.from_user.id)
+    new_value = not settings.get('target_price_alerts', True)
+
+    await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
+
+    status = "включены" if new_value else "отключены"
+    await callback.message.answer(f"✅ Уведомления о целевых ценах {status}")
+
+    # Возвращаемся к настройкам уведомлений
+    await show_notification_settings(callback)
+
+@router.callback_query(F.data == "toggle_price_updates")
+async def toggle_price_updates(callback: CallbackQuery):
+    """Переключение обновлений цен"""
+    settings = await get_user_settings(callback.from_user.id)
+    new_value = not settings.get('price_updates', False)
+
+    await update_user_settings(callback.from_user.id, price_updates=new_value)
+
+    status = "включены" if new_value else "отключены"
+    await callback.message.answer(f"✅ Обновления цен {status}")
+
+    # Возвращаемся к настройкам уведомлений
+    await show_notification_settings(callback)
+
+def register_handlers(dp):
             return
 
-        ideas_text = "🚀 *Инвестиционные идеи от xAI Grok:*\n\n"
+        ideas_text = f"🚀 *Инвестиционные идеи от xAI Grok:*\n"
+        ideas_text += f"💰 Бюджет: {settings['max_investment_amount']:,.0f} ₽\n"
+        ideas_text += f"🎯 Риск: {settings['risk_level']}\n\n"
 
         for i, idea in enumerate(ideas[:5], 1):  # Показываем первые 5 идей
             current_price = idea.get('price', 0)
@@ -497,6 +626,45 @@ async def cmd_history(message: Message):
         logger.error(f"Ошибка при получении истории: {e}")
         await message.answer("❌ Ошибка при получении истории операций")
 
+@router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    """Показать настройки (команда)"""
+    try:
+        settings = await get_user_settings(message.from_user.id)
+
+        risk_levels = {
+            'low': '🟢 Низкий',
+            'medium': '🟡 Средний',
+            'high': '🔴 Высокий'
+        }
+
+        settings_text = f"""
+⚙️ *Ваши настройки:*
+
+🎯 *Уровень риска:* {risk_levels.get(settings['risk_level'], settings['risk_level'])}
+💰 *Макс. сумма инвестирования:* {settings['max_investment_amount']:,.0f} ₽
+🔔 *Уведомления:* {'✅ Включены' if settings['notifications'] else '❌ Отключены'}
+
+Выберите что изменить:
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎯 Уровень риска", callback_data="set_risk"),
+                InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
+            ],
+            [
+                InlineKeyboardButton(text="🔔 Уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")
+            ]
+        ])
+
+        await message.answer(settings_text, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе настроек: {e}")
+        await message.answer("❌ Ошибка при получении настроек")
+
 @router.callback_query(F.data == "portfolio")
 async def show_portfolio_callback(callback: CallbackQuery):
     """Показать портфель через callback"""
@@ -539,6 +707,181 @@ async def show_help_callback(callback: CallbackQuery):
     """
 
     await callback.message.answer(help_text, parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data == "settings")
+async def show_settings(callback: CallbackQuery):
+    """Показать настройки пользователя"""
+    try:
+        settings = await get_user_settings(callback.from_user.id)
+
+        risk_levels = {
+            'low': '🟢 Низкий',
+            'medium': '🟡 Средний',
+            'high': '🔴 Высокий'
+        }
+
+        settings_text = f"""
+⚙️ *Ваши настройки:*
+
+🎯 *Уровень риска:* {risk_levels.get(settings['risk_level'], settings['risk_level'])}
+💰 *Макс. сумма инвестирования:* {settings['max_investment_amount']:,.0f} ₽
+🔔 *Уведомления:* {'✅ Включены' if settings['notifications'] else '❌ Отключены'}
+
+Выберите что изменить:
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎯 Уровень риска", callback_data="set_risk"),
+                InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
+            ],
+            [
+                InlineKeyboardButton(text="🔔 Уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")
+            ]
+        ])
+
+        await callback.message.answer(settings_text, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе настроек: {e}")
+        await callback.message.answer("❌ Ошибка при получении настроек")
+
+    await callback.answer()
+
+@router.callback_query(F.data == "set_risk")
+async def set_risk_level(callback: CallbackQuery, state: FSMContext):
+    """Настройка уровня риска"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🟢 Низкий", callback_data="risk_low"),
+            InlineKeyboardButton(text="🟡 Средний", callback_data="risk_medium")
+        ],
+        [
+            InlineKeyboardButton(text="🔴 Высокий", callback_data="risk_high"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="settings")
+        ]
+    ])
+
+    await callback.message.answer(
+        "🎯 *Выберите уровень риска:*\n\n"
+        "🟢 *Низкий* - консервативные инвестиции\n"
+        "🟡 *Средний* - сбалансированный портфель\n"
+        "🔴 *Высокий* - агрессивные инвестиции",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("risk_"))
+async def update_risk_level(callback: CallbackQuery):
+    """Обновление уровня риска"""
+    risk_level = callback.data.replace("risk_", "")
+
+    await update_user_settings(callback.from_user.id, risk_level=risk_level)
+
+    risk_names = {'low': 'Низкий', 'medium': 'Средний', 'high': 'Высокий'}
+    await callback.message.answer(
+        f"✅ Уровень риска изменен на: *{risk_names[risk_level]}*",
+        parse_mode="Markdown"
+    )
+
+    # Возвращаемся к настройкам
+    await show_settings(callback)
+
+@router.callback_query(F.data == "set_max_amount")
+async def set_max_amount(callback: CallbackQuery, state: FSMContext):
+    """Настройка максимальной суммы"""
+    await callback.message.answer(
+        "💰 *Введите максимальную сумму для одной инвестиции (в рублях):*\n\n"
+        "Например: 50000",
+        parse_mode="Markdown"
+    )
+    await state.set_state(InvestmentStates.waiting_for_max_amount)
+    await callback.answer()
+
+@router.message(InvestmentStates.waiting_for_max_amount)
+async def process_max_amount(message: Message, state: FSMContext):
+    """Обработка максимальной суммы"""
+    try:
+        amount = float(message.text.replace(",", ".").replace(" ", ""))
+
+        if amount <= 0:
+            await message.answer("❌ Сумма должна быть больше 0")
+            return
+
+        if amount > 10000000:  # 10 млн лимит
+            await message.answer("❌ Слишком большая сумма (максимум 10,000,000 ₽)")
+            return
+
+        await update_user_settings(message.from_user.id, max_investment_amount=amount)
+
+        await message.answer(f"✅ Максимальная сумма инвестирования установлена: *{amount:,.0f} ₽*", parse_mode="Markdown")
+        await state.clear()
+
+    except ValueError:
+        await message.answer("❌ Некорректная сумма. Введите число (например: 50000)")
+
+@router.callback_query(F.data == "toggle_notifications")
+async def toggle_notifications(callback: CallbackQuery):
+    """Переключение уведомлений"""
+    settings = await get_user_settings(callback.from_user.id)
+    new_notifications = not settings['notifications']
+
+    await update_user_settings(callback.from_user.id, notifications=new_notifications)
+
+    status = "включены" if new_notifications else "отключены"
+    await callback.message.answer(f"✅ Уведомления {status}")
+
+    # Возвращаемся к настройкам
+    await show_settings(callback)
+
+@router.message(Command("test_notifications"))
+async def test_notifications(message: Message):
+    """Тестирование системы уведомлений"""
+    user_id = message.from_user.id
+    settings = await get_user_settings(user_id)
+
+    if not settings['notifications']:
+        await message.answer("❌ У вас отключены уведомления. Включите их в /settings")
+        return
+
+    # Симуляция ежедневного анализа
+    await message.answer("🧪 *Тест уведомлений запущен...*", parse_mode="Markdown")
+
+    # Получаем рекомендации
+    ideas = await get_investment_ideas(
+        budget=settings['max_investment_amount'],
+        risk_level=settings['risk_level']
+    )
+
+    if ideas:
+        # Формируем тестовое уведомление
+        test_message = "🌅 *ТЕСТ: Ежедневная сводка рынка*\n\n"
+        test_message += f"📈 *Свежие инвестиционные идеи для вас:*\n\n"
+
+        for i, idea in enumerate(ideas[:3], 1):
+            current_price = idea.get('current_price', 0)
+            target_price = idea.get('target_price', 0)
+            potential_return = ((target_price - current_price) / current_price * 100) if current_price > 0 else 0
+
+            test_message += f"*{i}. {idea['ticker']}*\n"
+            test_message += f"💰 Цена: {current_price:.2f} ₽ → 🎯 {target_price:.2f} ₽\n"
+            test_message += f"📊 Потенциал: +{potential_return:.1f}%\n"
+            test_message += f"📝 {idea['reasoning'][:100]}...\n\n"
+
+        test_message += "_Это тестовое уведомление. Настоящие будут приходить в 9:00 ежедневно._"
+
+        await message.answer(test_message, parse_mode="Markdown")
+    else:
+        await message.answer("❌ Не удалось получить рекомендации для теста")
+
+@router.callback_query(F.data == "back_to_menu")
+async def back_to_menu(callback: CallbackQuery):
+    """Возврат в главное меню"""
+    # Эмулируем команду /start
+    await cmd_start(callback.message)
     await callback.answer()
 
 def register_handlers(dp):

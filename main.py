@@ -27,8 +27,8 @@ async def set_bot_commands():
         BotCommand(command="start", description="🚀 Запустить бота"),
         BotCommand(command="portfolio", description="💼 Показать портфель"),
         BotCommand(command="ideas", description="💡 Получить инвестиционные идеи"),
-        BotCommand(command="confirm", description="✅ Подтвердить сделку"),
         BotCommand(command="history", description="📊 История операций"),
+        BotCommand(command="settings", description="⚙️ Настройки"),
         BotCommand(command="help", description="❓ Помощь")
     ]
     await bot.set_my_commands(commands)

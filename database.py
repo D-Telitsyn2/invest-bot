@@ -42,11 +42,18 @@ async def init_db():
                 quantity INTEGER NOT NULL,
                 avg_price REAL NOT NULL,
                 current_price REAL,
+                target_price REAL DEFAULT 0,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (telegram_id),
                 UNIQUE(user_id, ticker)
             )
         """)
+
+        # Добавляем поле target_price если его нет (миграция)
+        try:
+            await db.execute("ALTER TABLE positions ADD COLUMN target_price REAL DEFAULT 0")
+        except Exception:
+            pass  # Поле уже существует
 
         # Таблица заявок/ордеров
         await db.execute("""
@@ -91,9 +98,31 @@ async def init_db():
                 max_investment_amount REAL DEFAULT 10000,
                 auto_invest BOOLEAN DEFAULT FALSE,
                 notifications BOOLEAN DEFAULT TRUE,
+                daily_market_analysis BOOLEAN DEFAULT TRUE,
+                weekly_portfolio_report BOOLEAN DEFAULT TRUE,
+                target_price_alerts BOOLEAN DEFAULT TRUE,
+                price_updates BOOLEAN DEFAULT FALSE,
                 FOREIGN KEY (user_id) REFERENCES users (telegram_id)
             )
         """)
+
+        # Добавляем новые поля уведомлений если их нет (миграция)
+        try:
+            await db.execute("ALTER TABLE user_settings ADD COLUMN daily_market_analysis BOOLEAN DEFAULT TRUE")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE user_settings ADD COLUMN weekly_portfolio_report BOOLEAN DEFAULT TRUE")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE user_settings ADD COLUMN target_price_alerts BOOLEAN DEFAULT TRUE")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE user_settings ADD COLUMN price_updates BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass
 
         await db.commit()
         logger.info("База данных инициализирована")
@@ -280,7 +309,8 @@ async def get_user_settings(user_id: int) -> Dict:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("""
-            SELECT risk_level, max_investment_amount, auto_invest, notifications
+            SELECT risk_level, max_investment_amount, auto_invest, notifications,
+                   daily_market_analysis, weekly_portfolio_report, target_price_alerts, price_updates
             FROM user_settings
             WHERE user_id = ?
         """, (user_id,))
@@ -292,7 +322,11 @@ async def get_user_settings(user_id: int) -> Dict:
                 'risk_level': row['risk_level'],
                 'max_investment_amount': row['max_investment_amount'],
                 'auto_invest': row['auto_invest'],
-                'notifications': row['notifications']
+                'notifications': row['notifications'],
+                'daily_market_analysis': row[4] if len(row) > 4 else True,  # 5-й столбец
+                'weekly_portfolio_report': row[5] if len(row) > 5 else True,  # 6-й столбец
+                'target_price_alerts': row[6] if len(row) > 6 else True,  # 7-й столбец
+                'price_updates': row[7] if len(row) > 7 else False  # 8-й столбец
             }
         else:
             # Возвращаем настройки по умолчанию
@@ -300,7 +334,11 @@ async def get_user_settings(user_id: int) -> Dict:
                 'risk_level': 'medium',
                 'max_investment_amount': 10000,
                 'auto_invest': False,
-                'notifications': True
+                'notifications': True,
+                'daily_market_analysis': True,
+                'weekly_portfolio_report': True,
+                'target_price_alerts': True,
+                'price_updates': False
             }
 
 async def update_user_settings(user_id: int, **settings):
@@ -311,7 +349,8 @@ async def update_user_settings(user_id: int, **settings):
         values = []
 
         for key, value in settings.items():
-            if key in ['risk_level', 'max_investment_amount', 'auto_invest', 'notifications']:
+            if key in ['risk_level', 'max_investment_amount', 'auto_invest', 'notifications',
+                      'daily_market_analysis', 'weekly_portfolio_report', 'target_price_alerts', 'price_updates']:
                 set_clauses.append(f"{key} = ?")
                 values.append(value)
 
@@ -382,3 +421,68 @@ async def update_prices_in_portfolio(price_updates: Dict[str, float]):
 
         await db.commit()
         logger.info(f"Обновлены цены для {len(price_updates)} инструментов")
+
+async def get_users_with_notification_type(notification_type: str) -> list:
+    """Получение пользователей с включенным конкретным типом уведомлений"""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Проверяем общие уведомления И конкретный тип
+        cursor = await db.execute(f"""
+            SELECT user_id, risk_level, max_investment_amount
+            FROM user_settings
+            WHERE notifications = 1 AND {notification_type} = 1
+        """)
+
+        users = await cursor.fetchall()
+        return [dict(user) for user in users]
+
+async def get_all_users_with_notifications() -> list:
+    """Получение всех пользователей с включенными уведомлениями (для обратной совместимости)"""
+    return await get_users_with_notification_type('daily_market_analysis')
+
+async def get_user_portfolio_for_notifications(user_id: int) -> list:
+    """Получение портфеля пользователя для уведомлений"""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute("""
+            SELECT ticker, quantity, avg_price, current_price,
+                   (current_price - avg_price) * quantity as unrealized_pnl,
+                   ((current_price - avg_price) / avg_price) * 100 as return_pct
+            FROM positions
+            WHERE user_id = ? AND quantity > 0
+            ORDER BY ticker
+        """, (user_id,))
+
+        positions = await cursor.fetchall()
+        return [dict(position) for position in positions]
+
+async def check_target_prices_achieved(user_id: int) -> list:
+    """Проверка достижения целевых цен"""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Получаем позиции, где текущая цена достигла или превысила целевую
+        cursor = await db.execute("""
+            SELECT ticker, quantity, avg_price, current_price, target_price,
+                   (current_price - avg_price) * quantity as unrealized_pnl,
+                   ((current_price - avg_price) / avg_price) * 100 as return_pct
+            FROM positions
+            WHERE user_id = ? AND quantity > 0 AND target_price > 0
+            AND current_price >= target_price
+        """, (user_id,))
+
+        positions = await cursor.fetchall()
+        return [dict(position) for position in positions]
+
+async def set_target_price(user_id: int, ticker: str, target_price: float):
+    """Установка целевой цены для позиции"""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            UPDATE positions
+            SET target_price = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ? AND ticker = ?
+        """, (target_price, user_id, ticker))
+
+        await db.commit()
