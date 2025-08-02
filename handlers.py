@@ -42,11 +42,14 @@ async def cmd_start(message: Message):
             InlineKeyboardButton(text="💡 Идеи", callback_data="get_ideas")
         ],
         [
-            InlineKeyboardButton(text="📊 История", callback_data="history"),
-            InlineKeyboardButton(text="💰 Финансы", callback_data="finances")
+            InlineKeyboardButton(text="� Анализ акций", callback_data="analyze_menu"),
+            InlineKeyboardButton(text="�📊 История", callback_data="history")
         ],
         [
-            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"),
+            InlineKeyboardButton(text="💰 Финансы", callback_data="finances"),
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
+        ],
+        [
             InlineKeyboardButton(text="❓ Помощь", callback_data="help")
         ]
     ])
@@ -56,7 +59,8 @@ async def cmd_start(message: Message):
 
 Я помогу вам:
 • 💡 Получать персональные инвестиционные идеи от AI
-• 💼 Управлять инвестиционным портфелем
+• � Анализировать любые акции MOEX по тикеру
+• �💼 Управлять инвестиционным портфелем
 • 📊 Отслеживать историю операций и доходность
 • 🔔 Получать уведомления о рынке
 
@@ -264,6 +268,125 @@ async def cmd_ideas(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка при получении инвестиционных идей: {e}")
         await message.answer("❌ Ошибка при получении инвестиционных идей")
+
+@router.message(Command("analyze"))
+async def cmd_analyze_stock(message: Message):
+    """Анализ конкретной акции по тикеру"""
+    # Извлекаем тикер из команды
+    command_parts = message.text.split()
+
+    if len(command_parts) < 2:
+        await message.answer(
+            "📈 *Анализ акций*\n\n"
+            "Для анализа акции введите команду:\n"
+            "`/analyze ТИКЕР`\n\n"
+            "*Примеры:*\n"
+            "• `/analyze SBER` - анализ Сбербанка\n"
+            "• `/analyze YNDX` - анализ Яндекса\n"
+            "• `/analyze GAZP` - анализ Газпрома\n\n"
+            "💡 Можно анализировать любые акции с MOEX",
+            parse_mode="Markdown"
+        )
+        return
+
+    ticker = command_parts[1].upper().strip()
+
+    # Валидация тикера
+    if not ticker.isalpha() or len(ticker) > 10:
+        await message.answer("❌ Некорректный тикер. Используйте только буквы (например: SBER, YNDX)")
+        return
+
+    await message.answer(f"🔍 Анализирую акцию {ticker}...")
+
+    try:
+        # Импортируем функцию анализа
+        from gpt_client import analyze_stock
+
+        # Получаем анализ от GPT
+        analysis = await analyze_stock(ticker)
+
+        # Проверяем на ошибки
+        if "error" in analysis:
+            if "не найден" in analysis["error"].lower() or "не существует" in analysis["error"].lower():
+                await message.answer(
+                    f"❌ *Акция {ticker} не найдена на MOEX*\n\n"
+                    "Проверьте правильность тикера или попробуйте другую акцию.\n\n"
+                    "💡 Популярные тикеры: SBER, GAZP, LKOH, YNDX, OZON",
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer(f"❌ Ошибка анализа: {analysis['error']}")
+            return
+
+        # Формируем ответ с анализом
+        recommendation_emoji = {
+            "BUY": "🟢 ПОКУПАТЬ",
+            "HOLD": "🟡 ДЕРЖАТЬ",
+            "SELL": "🔴 ПРОДАВАТЬ"
+        }.get(analysis.get("recommendation", "HOLD"), "🟡 ДЕРЖАТЬ")
+
+        risk_emoji = {
+            "low": "🟢 Низкий",
+            "medium": "🟡 Средний",
+            "high": "🔴 Высокий"
+        }.get(analysis.get("risk_level", "medium"), "🟡 Средний")
+
+        # Получаем текущую цену с MOEX
+        from market_data import market_data
+        current_prices = await market_data.get_multiple_moex_prices([ticker])
+        current_price = current_prices.get(ticker)
+
+        analysis_text = f"📊 *Анализ акции {ticker}*\n\n"
+
+        if current_price:
+            analysis_text += f"💰 *Текущая цена:* {current_price:.2f} ₽\n"
+
+        if analysis.get("target_price"):
+            analysis_text += f"🎯 *Целевая цена:* {analysis['target_price']:.2f} ₽\n"
+
+            if current_price and analysis.get("target_price"):
+                potential = ((analysis['target_price'] - current_price) / current_price) * 100
+                potential_emoji = "📈" if potential > 0 else "📉"
+                analysis_text += f"{potential_emoji} *Потенциал:* {potential:+.1f}%\n"
+
+        analysis_text += f"\n{recommendation_emoji}\n"
+        analysis_text += f"⚠️ *Риск:* {risk_emoji}\n\n"
+
+        if analysis.get("analysis"):
+            analysis_text += f"📝 *Анализ:*\n{analysis['analysis']}\n\n"
+
+        if analysis.get("pros"):
+            analysis_text += "✅ *Плюсы:*\n"
+            for pro in analysis['pros']:
+                analysis_text += f"• {pro}\n"
+            analysis_text += "\n"
+
+        if analysis.get("cons"):
+            analysis_text += "❌ *Минусы:*\n"
+            for con in analysis['cons']:
+                analysis_text += f"• {con}\n"
+
+        # Создаем кнопки для дальнейших действий
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💡 Получить идеи", callback_data="get_ideas"),
+                InlineKeyboardButton(text="💼 Портфель", callback_data="portfolio")
+            ]
+        ])
+
+        await message.answer(analysis_text, reply_markup=keyboard, parse_mode="Markdown")
+
+        logger.info(f"✅ Анализ акции {ticker} предоставлен пользователю {message.from_user.id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при анализе акции {ticker}: {e}")
+        await message.answer(
+            f"❌ Не удалось проанализировать акцию {ticker}\n\n"
+            "Возможные причины:\n"
+            "• Акция не торгуется на MOEX\n"
+            "• Временные проблемы с сервисом\n\n"
+            "Попробуйте позже или выберите другую акцию."
+        )
 
 @router.callback_query(F.data == "notification_settings")
 async def show_notification_settings(callback: CallbackQuery):
@@ -1298,6 +1421,7 @@ async def cmd_help(message: Message):
 🤖 *Основные команды:*
 • /start - Главное меню и быстрый доступ ко всем функциям
 • /portfolio - Показать текущий портфель и его стоимость
+• /analyze ТИКЕР - Анализ конкретной акции (например: `/analyze SBER`)
 • /target - Управление целевыми ценами (например: `/target SBER 350`)
 • /ideas - Получить персональные инвестиционные идеи от AI
 • /history - История всех ваших операций
@@ -1369,6 +1493,7 @@ async def show_help_callback(callback: CallbackQuery):
 🤖 *Основные команды:*
 • /start - Главное меню и быстрый доступ ко всем функциям
 • /portfolio - Показать текущий портфель и его стоимость
+• /analyze ТИКЕР - Анализ конкретной акции (например: `/analyze SBER`)
 • /target - Управление целевыми ценами (например: `/target SBER 350`)
 • /ideas - Получить персональные инвестиционные идеи от AI
 • /history - История всех ваших операций
@@ -1825,6 +1950,45 @@ async def debug_notifications(message: Message):
         logger.error(f"Ошибка отладки уведомлений: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
+@router.callback_query(F.data == "analyze_menu")
+async def show_analyze_menu(callback: CallbackQuery):
+    """Показать меню анализа акций"""
+    analyze_text = """
+📈 *Анализ акций*
+
+Для анализа любой акции с MOEX используйте команду:
+`/analyze ТИКЕР`
+
+*Примеры:*
+• `/analyze SBER` - анализ Сбербанка
+• `/analyze YNDX` - анализ Яндекса
+• `/analyze GAZP` - анализ Газпрома
+• `/analyze OZON` - анализ Озона
+• `/analyze LKOH` - анализ ЛУКОЙЛа
+
+*Что включает анализ:*
+✅ Текущая цена акции
+✅ Рекомендация (покупать/держать/продавать)
+✅ Целевая цена и потенциал роста
+✅ Оценка рисков
+✅ Плюсы и минусы компании
+✅ Профессиональный анализ от AI
+
+💡 Можно анализировать любые тикеры, торгующиеся на MOEX
+    """
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💡 Идеи от AI", callback_data="get_ideas"),
+            InlineKeyboardButton(text="💼 Портфель", callback_data="portfolio")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_to_menu")
+        ]
+    ])
+
+    await callback.message.edit_text(analyze_text, reply_markup=keyboard, parse_mode="Markdown")
+
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: CallbackQuery):
     """Возврат в главное меню"""
@@ -1834,7 +1998,11 @@ async def back_to_menu(callback: CallbackQuery):
             InlineKeyboardButton(text="💡 Идеи", callback_data="get_ideas")
         ],
         [
-            InlineKeyboardButton(text="📊 История", callback_data="history"),
+            InlineKeyboardButton(text="� Анализ акций", callback_data="analyze_menu"),
+            InlineKeyboardButton(text="�📊 История", callback_data="history")
+        ],
+        [
+            InlineKeyboardButton(text="💰 Финансы", callback_data="finances"),
             InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
         ],
         [
@@ -1847,6 +2015,7 @@ async def back_to_menu(callback: CallbackQuery):
 
 Я помогу вам:
 • 💡 Получать персональные инвестиционные идеи от AI
+• 📈 Анализировать любые акции MOEX по тикеру
 • 💼 Управлять инвестиционным портфелем
 • 📊 Отслеживать историю операций и доходность
 • 🔔 Получать уведомления о рынке
