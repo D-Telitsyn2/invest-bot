@@ -63,7 +63,7 @@ class XAIClient:
 
     async def get_investment_ideas(self, budget: float = 10000, risk_level: str = "medium") -> List[Dict]:
         """
-        Получение инвестиционных идей от xAI Grok с реальными ценами MOEX
+        Получение инвестиционных идей с реальными ценами MOEX
 
         Args:
             budget: Бюджет для инвестирования
@@ -180,7 +180,7 @@ class XAIClient:
 
     async def analyze_stock(self, ticker: str) -> Dict:
         """
-        Анализ конкретной акции через xAI Grok
+        Анализ конкретной акции
 
         Args:
             ticker: Тикер акции
