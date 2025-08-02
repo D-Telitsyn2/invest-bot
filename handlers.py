@@ -699,6 +699,9 @@ async def show_portfolio_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "get_ideas")
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     """Получить идеи через callback"""
+    # Сначала отвечаем на callback, чтобы избежать истечения времени ожидания
+    await callback.answer()
+    # Затем выполняем основную логику получения идей
     await cmd_ideas(callback.message, state)
     await callback.answer()
 
