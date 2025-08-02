@@ -97,7 +97,7 @@
 **A:**
 - 📚 [Документация](README.md)
 - 🐛 [GitHub Issues](https://github.com/D-Telitsyn2/invest-bot/issues)
-- 💬 Telegram: [@D_Telitsyn2](https://t.me/D_Telitsyn2)
+- 💬 Telegram: [@d_telitsyn](https://t.me/d_telitsyn)
 
 ### Q: Как сообщить о баге?
 **A:** Создайте [Issue на GitHub](https://github.com/D-Telitsyn2/invest-bot/issues/new?template=bug_report.md) с подробным описанием проблемы.
@@ -107,4 +107,4 @@
 
 ---
 
-**Не нашли ответ на свой вопрос?** Обратитесь к [@D_Telitsyn2](https://t.me/D_Telitsyn2) или создайте Issue на GitHub.
+**Не нашли ответ на свой вопрос?** Обратитесь к [@d_telitsyn](https://t.me/d_telitsyn) или создайте Issue на GitHub.

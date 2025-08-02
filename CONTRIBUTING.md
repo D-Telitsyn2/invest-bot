@@ -72,7 +72,7 @@ test: добавить тесты для portfolio функций
 
 ## 📞 Связь
 
-- **Telegram**: [@D_Telitsyn2](https://t.me/D_Telitsyn2)
+- **Telegram**: [@d_telitsyn](https://t.me/d_telitsyn)
 - **GitHub Issues**: для обсуждения функций и багов
 - **GitHub Discussions**: для общих вопросов
 
