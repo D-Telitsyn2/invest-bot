@@ -16,13 +16,10 @@ class XAIClient:
         self.api_key = os.getenv('XAI_API_KEY')
         self.base_url = "https://api.x.ai/v1/chat/completions"
         self.models = [
-            "grok-4-0709",
-            "grok-3-mini-fast",
-            "grok-3-mini",
-            "grok-3-fast",
             "grok-3",
+            "grok-3-mini",
+            "grok-3-mini-fast",
             "grok-2-vision-1212",
-            "grok-2-image-1212",
             "grok-2-1212"
         ]
         if not self.api_key:
@@ -49,19 +46,34 @@ class XAIClient:
                 }
 
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(self.base_url, headers=headers, json=payload) as response:
+                    async with session.post(self.base_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
                         if response.status == 200:
-                            data = await response.json()
-                            logger.info(f"✅ Успешный запрос с моделью {model}")
-                            return data
+                            try:
+                                data = await response.json()
+                                logger.info(f"✅ Успешный запрос с моделью {model}")
+                                return data
+                            except Exception as json_error:
+                                logger.error(f"❌ Ошибка парсинга JSON ответа от модели {model}: {json_error}")
+                                text_response = await response.text()
+                                logger.error(f"Текст ответа: {text_response[:500]}...")
+                                continue
                         elif response.status == 404:
                             logger.warning(f"❌ Модель {model} недоступна, пробуем следующую...")
+                            continue
+                        elif response.status == 401:
+                            logger.error(f"❌ Ошибка авторизации с моделью {model}: неверный API ключ")
+                            continue
+                        elif response.status == 429:
+                            logger.error(f"❌ Превышен лимит запросов для модели {model}")
                             continue
                         else:
                             error_text = await response.text()
                             logger.error(f"xAI API error {response.status} с моделью {model}: {error_text}")
                             continue
 
+            except asyncio.TimeoutError:
+                logger.error(f"❌ Тайм-аут запроса для модели {model}")
+                continue
             except Exception as e:
                 logger.error(f"Ошибка с моделью {model}: {e}")
                 continue
@@ -83,6 +95,9 @@ class XAIClient:
         if not self.api_key:
             logger.error("xAI API ключ не настроен")
             return []
+
+        data = None
+        content = ""
 
         try:
             # Создаем детальное описание стратегии на основе уровня риска
@@ -147,7 +162,18 @@ class XAIClient:
             ]
 
             data = await self._make_request(messages, max_tokens=1200, temperature=0.3)
+
+            # Проверяем, что получили корректный ответ
+            if not data or 'choices' not in data or not data['choices']:
+                logger.error("xAI вернул пустой или некорректный ответ")
+                return []
+
             content = data['choices'][0]['message']['content'].strip()
+
+            # Проверяем, что контент не пустой
+            if not content:
+                logger.error("xAI вернул пустой контент")
+                return []
 
             # Парсим JSON ответ
             start_idx = content.find('[')
@@ -155,6 +181,12 @@ class XAIClient:
 
             if start_idx != -1 and end_idx != -1:
                 json_str = content[start_idx:end_idx]
+
+                # Дополнительная проверка перед парсингом JSON
+                if not json_str.strip():
+                    logger.error("Найден пустой JSON в ответе xAI")
+                    return []
+
                 ideas = json.loads(json_str)
 
                 # Получаем реальные цены с MOEX
@@ -181,6 +213,11 @@ class XAIClient:
 
         except json.JSONDecodeError as e:
             logger.error(f"Ошибка парсинга JSON от xAI: {e}")
+            logger.error(f"Полученный контент: {content[:500]}...")  # Логируем первые 500 символов
+            return []
+        except KeyError as e:
+            logger.error(f"Отсутствует ключ в ответе xAI: {e}")
+            logger.error(f"Структура ответа: {data}")
             return []
         except Exception as e:
             logger.error(f"Ошибка при получении идей от xAI: {e}")

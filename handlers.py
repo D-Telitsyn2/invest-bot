@@ -141,6 +141,14 @@ async def cmd_ideas(message: Message, state: FSMContext):
         # Получаем настройки пользователя
         settings = await get_user_settings(message.from_user.id)
 
+        # Если настройки не найдены, используем значения по умолчанию
+        if not settings:
+            logger.warning(f"Настройки не найдены для пользователя {message.from_user.id}, используем значения по умолчанию")
+            settings = {
+                'max_investment_amount': 10000,
+                'risk_level': 'medium'
+            }
+
         # Получаем идеи с учетом настроек
         xai_client = XAIClient()
         ideas = await xai_client.get_investment_ideas(
@@ -206,10 +214,20 @@ async def show_notification_settings(callback: CallbackQuery):
     try:
         settings = await get_user_settings(callback.from_user.id)
 
+        # Безопасная проверка настроек
+        if not settings:
+            settings = {
+                'notifications': True,
+                'daily_market_analysis': True,
+                'weekly_portfolio_report': True,
+                'target_price_alerts': True,
+                'price_updates': False
+            }
+
         settings_text = f"""
 🔔 *Настройки уведомлений*
 
-📊 *Общие уведомления:* {'✅' if settings['notifications'] else '❌'}
+📊 *Общие уведомления:* {'✅' if settings.get('notifications', True) else '❌'}
 
 *Детальные настройки:*
 🌅 *Ежедневная сводка* (9:00): {'✅' if settings.get('daily_market_analysis', True) else '❌'}
@@ -263,6 +281,9 @@ async def toggle_daily_analysis(callback: CallbackQuery):
     """Переключение ежедневного анализа"""
     try:
         settings = await get_user_settings(callback.from_user.id)
+        if not settings:
+            settings = {'daily_market_analysis': True}
+
         new_value = not settings.get('daily_market_analysis', True)
 
         await update_user_settings(callback.from_user.id, daily_market_analysis=new_value)
@@ -280,6 +301,9 @@ async def toggle_weekly_report(callback: CallbackQuery):
     """Переключение еженедельного отчета"""
     try:
         settings = await get_user_settings(callback.from_user.id)
+        if not settings:
+            settings = {'weekly_portfolio_report': True}
+
         new_value = not settings.get('weekly_portfolio_report', True)
 
         await update_user_settings(callback.from_user.id, weekly_portfolio_report=new_value)
@@ -297,6 +321,8 @@ async def toggle_target_alerts(callback: CallbackQuery):
     """Переключение уведомлений о целевых ценах"""
     try:
         settings = await get_user_settings(callback.from_user.id)
+        if not settings:
+            settings = {'target_price_alerts': True}
         new_value = not settings.get('target_price_alerts', True)
 
         await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
@@ -314,6 +340,9 @@ async def toggle_price_updates(callback: CallbackQuery):
     """Переключение обновлений цен"""
     try:
         settings = await get_user_settings(callback.from_user.id)
+        if not settings:
+            settings = {'price_updates': False}
+
         new_value = not settings.get('price_updates', False)
 
         await update_user_settings(callback.from_user.id, price_updates=new_value)
@@ -657,6 +686,14 @@ async def cmd_settings(message: Message):
     try:
         settings = await get_user_settings(message.from_user.id)
 
+        # Безопасная проверка настроек
+        if not settings:
+            settings = {
+                'risk_level': 'medium',
+                'max_investment_amount': 10000,
+                'notifications': True
+            }
+
         risk_levels = {
             'low': '🟢 Низкий',
             'medium': '🟡 Средний',
@@ -666,9 +703,9 @@ async def cmd_settings(message: Message):
         settings_text = f"""
 ⚙️ *Ваши настройки:*
 
-🎯 *Уровень риска:* {risk_levels.get(settings['risk_level'], settings['risk_level'])}
-💰 *Макс. сумма инвестирования:* {settings['max_investment_amount']:,.0f} ₽
-🔔 *Уведомления:* {'✅ Включены' if settings['notifications'] else '❌ Отключены'}
+🎯 *Уровень риска:* {risk_levels.get(settings.get('risk_level', 'medium'), settings.get('risk_level', 'medium'))}
+💰 *Макс. сумма инвестирования:* {settings.get('max_investment_amount', 10000):,.0f} ₽
+🔔 *Уведомления:* {'✅ Включены' if settings.get('notifications', True) else '❌ Отключены'}
 
 Выберите что изменить:
         """
@@ -700,16 +737,15 @@ async def show_portfolio_callback(callback: CallbackQuery):
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     """Получить идеи через callback"""
     # Сначала отвечаем на callback, чтобы избежать истечения времени ожидания
-    await callback.answer()
+    await callback.answer("🤖 Получаю рекомендации...")
     # Затем выполняем основную логику получения идей
     await cmd_ideas(callback.message, state)
-    await callback.answer()
 
 @router.callback_query(F.data == "history")
 async def show_history_callback(callback: CallbackQuery):
     """Показать историю через callback"""
+    await callback.answer("📊 Загружаю историю...")
     await cmd_history(callback.message)
-    await callback.answer()
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
@@ -857,6 +893,14 @@ async def show_settings(callback: CallbackQuery):
     try:
         settings = await get_user_settings(callback.from_user.id)
 
+        # Безопасная проверка настроек
+        if not settings:
+            settings = {
+                'risk_level': 'medium',
+                'max_investment_amount': 10000,
+                'notifications': True
+            }
+
         risk_levels = {
             'low': '🟢 Низкий',
             'medium': '🟡 Средний',
@@ -866,9 +910,9 @@ async def show_settings(callback: CallbackQuery):
         settings_text = f"""
 ⚙️ *Ваши настройки:*
 
-🎯 *Уровень риска:* {risk_levels.get(settings['risk_level'], settings['risk_level'])}
-💰 *Макс. сумма инвестирования:* {settings['max_investment_amount']:,.0f} ₽
-🔔 *Уведомления:* {'✅ Включены' if settings['notifications'] else '❌ Отключены'}
+🎯 *Уровень риска:* {risk_levels.get(settings.get('risk_level', 'medium'), settings.get('risk_level', 'medium'))}
+💰 *Макс. сумма инвестирования:* {settings.get('max_investment_amount', 10000):,.0f} ₽
+🔔 *Уведомления:* {'✅ Включены' if settings.get('notifications', True) else '❌ Отключены'}
 
 Выберите что изменить:
         """
@@ -973,7 +1017,10 @@ async def toggle_notifications(callback: CallbackQuery):
     """Переключение уведомлений"""
     try:
         settings = await get_user_settings(callback.from_user.id)
-        new_notifications = not settings['notifications']
+        if not settings:
+            settings = {'notifications': True}
+
+        new_notifications = not settings.get('notifications', True)
 
         await update_user_settings(callback.from_user.id, notifications=new_notifications)
         logger.info(f"Пользователь {callback.from_user.id}: общие уведомления -> {new_notifications}")
@@ -995,7 +1042,14 @@ async def test_notifications(message: Message):
     user_id = message.from_user.id
     settings = await get_user_settings(user_id)
 
-    if not settings['notifications']:
+    if not settings:
+        settings = {
+            'notifications': True,
+            'max_investment_amount': 10000,
+            'risk_level': 'medium'
+        }
+
+    if not settings.get('notifications', True):
         await message.answer("❌ У вас отключены уведомления. Включите их в /settings")
         return
 
@@ -1005,8 +1059,8 @@ async def test_notifications(message: Message):
     # Получаем рекомендации
     xai_client = XAIClient()
     ideas = await xai_client.get_investment_ideas(
-        budget=settings['max_investment_amount'],
-        risk_level=settings['risk_level']
+        budget=settings.get('max_investment_amount', 10000),
+        risk_level=settings.get('risk_level', 'medium')
     )
 
     if ideas:
