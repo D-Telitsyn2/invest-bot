@@ -42,8 +42,8 @@ async def cmd_start(message: Message):
             InlineKeyboardButton(text="💡 Идеи", callback_data="get_ideas")
         ],
         [
-            InlineKeyboardButton(text="� Анализ акций", callback_data="analyze_menu"),
-            InlineKeyboardButton(text="�📊 История", callback_data="history")
+            InlineKeyboardButton(text="📈 Анализ акций", callback_data="analyze_menu"),
+            InlineKeyboardButton(text="📊 История", callback_data="history")
         ],
         [
             InlineKeyboardButton(text="💰 Финансы", callback_data="finances"),
@@ -1114,7 +1114,7 @@ async def cmd_history(message: Message):
             history_text += f"📅 {date_str}\n"
             history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"� Сумма: {order['total_amount']:.2f} ₽\n"
+            history_text += f"💸 Сумма: {order['total_amount']:.2f} ₽\n"
 
             if order['order_type'].upper() == 'SELL' and profit_loss != 0:
                 pnl_emoji = "📈" if profit_loss >= 0 else "📉"
@@ -1210,7 +1210,7 @@ async def show_portfolio_callback(callback: CallbackQuery):
             profit_sign = "+" if profit_loss >= 0 else ""
             portfolio_text += f"📈 `{ticker}`: {quantity} шт.\n"
             portfolio_text += f"💰 Средняя цена: {avg_price:.2f} ₽\n"
-            portfolio_text += f"� Текущая цена: {current_price:.2f} ₽\n"
+            portfolio_text += f"💵 Текущая цена: {current_price:.2f} ₽\n"
             portfolio_text += f"💎 Стоимость: {current_value:.2f} ₽\n"
             portfolio_text += f"{profit_emoji} P&L: {profit_sign}{profit_loss:.2f} ₽ ({profit_sign}{profit_percent:.1f}%)\n\n"
             total_value += current_value
@@ -1408,7 +1408,7 @@ async def show_history_callback(callback: CallbackQuery):
             history_text += f"📅 {date_str}\n"
             history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"� Сумма: {order['total_amount']:.2f} ₽\n"
+            history_text += f"💸 Сумма: {order['total_amount']:.2f} ₽\n"
 
             if order['order_type'].upper() == 'SELL' and profit_loss != 0:
                 pnl_emoji = "📈" if profit_loss >= 0 else "📉"
@@ -1463,7 +1463,7 @@ async def cmd_help(message: Message):
 • Гибкие настройки уведомлений под ваши предпочтения
 • Sandbox-режим для безопасного тестирования стратегий
 
-� *Как начать работу:*
+🚀 *Как начать работу:*
 1. Настройте профиль через "⚙️ Настройки"
 2. Укажите ваш инвестиционный бюджет и уровень риска
 3. Запросите AI-рекомендации через "💡 Идеи"
@@ -1535,7 +1535,7 @@ async def show_help_callback(callback: CallbackQuery):
 • Гибкие настройки уведомлений под ваши предпочтения
 • Sandbox-режим для безопасного тестирования стратегий
 
-� *Как начать работу:*
+🚀 *Как начать работу:*
 1. Настройте профиль через "⚙️ Настройки"
 2. Укажите ваш инвестиционный бюджет и уровень риска
 3. Запросите AI-рекомендации через "💡 Идеи"
@@ -2008,8 +2008,8 @@ async def back_to_menu(callback: CallbackQuery):
             InlineKeyboardButton(text="💡 Идеи", callback_data="get_ideas")
         ],
         [
-            InlineKeyboardButton(text="� Анализ акций", callback_data="analyze_menu"),
-            InlineKeyboardButton(text="�📊 История", callback_data="history")
+            InlineKeyboardButton(text="📈 Анализ акций", callback_data="analyze_menu"),
+            InlineKeyboardButton(text="📊 История", callback_data="history")
         ],
         [
             InlineKeyboardButton(text="💰 Финансы", callback_data="finances"),
