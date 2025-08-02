@@ -668,7 +668,17 @@ async def cmd_history(message: Message):
         history_text = "📊 *История операций:*\n\n"
 
         for order in history[-10:]:  # Последние 10 операций
-            history_text += f"📅 {order['date']}\n"
+            # Форматируем дату из created_at
+            created_at = order.get('created_at')
+            if created_at:
+                if isinstance(created_at, str):
+                    date_str = created_at.split('T')[0]  # Берем только дату без времени
+                else:
+                    date_str = created_at.strftime('%Y-%m-%d')
+            else:
+                date_str = "Неизвестно"
+
+            history_text += f"📅 {date_str}\n"
             history_text += f"📈 {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
             history_text += f"📊 Операция: {order['order_type']}\n"
@@ -767,19 +777,29 @@ async def show_history_callback(callback: CallbackQuery):
     try:
         history = await get_order_history(callback.from_user.id)
         if not history:
-            await callback.message.answer("📊 История операций пуста")
+            await callback.message.edit_text("📊 История операций пуста")
             return
         history_text = "📊 *История операций:*\n\n"
         for order in history[-10:]:
-            history_text += f"📅 {order['date']}\n"
+            # Форматируем дату из created_at
+            created_at = order.get('created_at')
+            if created_at:
+                if isinstance(created_at, str):
+                    date_str = created_at.split('T')[0]  # Берем только дату без времени
+                else:
+                    date_str = created_at.strftime('%Y-%m-%d')
+            else:
+                date_str = "Неизвестно"
+
+            history_text += f"📅 {date_str}\n"
             history_text += f"📈 {order['ticker']}: {order['quantity']} шт.\n"
             history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
             history_text += f"📊 Операция: {order['order_type']}\n"
             history_text += f"💎 Сумма: {order['total_amount']:.2f} ₽\n\n"
-        await callback.message.answer(history_text, parse_mode="Markdown")
+        await callback.message.edit_text(history_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")
-        await callback.message.answer("❌ Ошибка при получении истории операций")
+        await callback.message.edit_text("❌ Ошибка при получении истории операций")
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
