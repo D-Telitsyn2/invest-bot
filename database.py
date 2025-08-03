@@ -363,12 +363,13 @@ async def get_user_trading_stats(user_id: int) -> Dict:
                 COUNT(CASE WHEN operation_type = 'buy' THEN 1 END) as total_buys,
                 COUNT(CASE WHEN operation_type = 'sell' THEN 1 END) as total_sells,
                 COALESCE(SUM(CASE WHEN operation_type = 'buy' THEN total_amount ELSE 0 END), 0) as total_bought,
-                COALESCE(SUM(CASE WHEN operation_type = 'sell' THEN total_amount ELSE 0 END), 0) as total_sold,
-                COALESCE(SUM(profit_loss), 0) as realized_pnl,
-                COALESCE(SUM(commission), 0) as total_commission
+                COALESCE(SUM(CASE WHEN operation_type = 'sell' THEN total_amount ELSE 0 END), 0) as total_sold
             FROM history
             WHERE user_id = $1
         """, user_id)
+
+        # Рассчитываем реализованную прибыль как разность между продажами и покупками
+        realized_pnl = trading_stats['total_sold'] - trading_stats['total_bought']
 
         # Статистика по портфелю
         portfolio_stats = await connection.fetchrow("""
@@ -413,6 +414,10 @@ async def get_user_trading_stats(user_id: int) -> Dict:
             'top_positions': [dict(row) for row in top_positions],
             'profitable_trades': [dict(row) for row in profitable_trades]
         }
+
+        # Добавляем рассчитанную реализованную прибыль
+        if trading_stats:
+            result['trading']['realized_pnl'] = realized_pnl
 
         # Вычисляем дополнительные метрики
         if result['portfolio']['portfolio_cost'] > 0:

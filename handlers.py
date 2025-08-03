@@ -1435,8 +1435,7 @@ async def show_finances_callback(callback: CallbackQuery):
         message += f"💸 Продаж: {trading.get('total_sells', 0)}\n"
         message += f"💰 Куплено на: {trading.get('total_bought', 0):,.0f} ₽\n"
         message += f"💎 Продано на: {trading.get('total_sold', 0):,.0f} ₽\n"
-        message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n"
-        message += f"💼 Комиссии: {trading.get('total_commission', 0):,.0f} ₽\n\n"
+        message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n\n"
 
         # Статистика портфеля
         portfolio = stats.get('portfolio', {})
@@ -1500,8 +1499,7 @@ async def cmd_finances(message: Message):
         finance_message += f"💸 Продаж: {trading.get('total_sells', 0)}\n"
         finance_message += f"💰 Куплено на: {trading.get('total_bought', 0):,.0f} ₽\n"
         finance_message += f"💎 Продано на: {trading.get('total_sold', 0):,.0f} ₽\n"
-        finance_message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n"
-        finance_message += f"💼 Комиссии: {trading.get('total_commission', 0):,.0f} ₽\n\n"
+        finance_message += f"✅ Реализованная прибыль: {trading.get('realized_pnl', 0):+,.0f} ₽\n\n"
 
         portfolio = stats.get('portfolio', {})
         finance_message += "💼 *Текущий портфель:*\n"
