@@ -237,21 +237,53 @@ async def cmd_ideas(message: Message, state: FSMContext):
         keyboard_buttons = []
 
         for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей для быстрого ответа
+
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
             action = idea.get('action', 'BUY')
             reasoning = idea.get('reasoning', 'Нет описания')
+            support_level = idea.get('support_level')
+            resistance_level = idea.get('resistance_level')
+            trend = idea.get('trend')
+            risk_level = idea.get('risk_level', '')
+            pros = idea.get('pros', [])
+            cons = idea.get('cons', [])
+            recommendation = idea.get('recommendation', action)
+            current_price = idea.get('current_price', price)
 
             # Рассчитываем потенциальную доходность
             potential_return = 0
-            if price > 0 and target_price > 0:
-                potential_return = ((target_price - price) / price) * 100
+            if current_price > 0 and target_price > 0:
+                potential_return = ((target_price - current_price) / current_price) * 100
+
+            # Эмодзи рекомендации
+            rec_emoji = {'BUY': '🟢', 'HOLD': '🟡', 'SELL': '🔴'}.get(recommendation.upper(), '❔')
+            risk_emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(risk_level.lower(), '❔')
 
             ideas_text += f"*{i}.* `{ticker}`\n"
-            ideas_text += f"💰 Цена: {price:.2f} ₽\n"
-            ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
-            ideas_text += f"💡 {reasoning}\n\n"
+            ideas_text += f"{rec_emoji} *Рекомендация:* {recommendation}\n"
+            ideas_text += f"💰 *Текущая цена:* {current_price:.2f} ₽\n"
+            ideas_text += f"🎯 *Целевая цена:* {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
+            if support_level:
+                ideas_text += f"🟢 *Поддержка:* {support_level:.2f} ₽\n"
+            if resistance_level:
+                ideas_text += f"🔴 *Сопротивление:* {resistance_level:.2f} ₽\n"
+            if trend:
+                ideas_text += f"📊 *Тренд:* {trend}\n"
+            if risk_level:
+                ideas_text += f"⚠️ *Риск:* {risk_emoji} {risk_level.capitalize()}\n"
+            ideas_text += f"\n📝 *Анализ:*\n{reasoning}\n"
+            if pros:
+                ideas_text += "✅ *Плюсы:*\n"
+                for pro in pros:
+                    ideas_text += f"• {pro}\n"
+                ideas_text += "\n"
+            if cons:
+                ideas_text += "❌ *Минусы:*\n"
+                for con in cons:
+                    ideas_text += f"• {con}\n"
+                ideas_text += "\n"
 
             # Добавляем кнопки для покупки (по 2 в ряду)
             row_index = (i - 1) // 2  # Определяем номер ряда (0, 1, 2, 3, 4)
@@ -1363,21 +1395,53 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
         keyboard_buttons = []
 
         for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей для быстрого ответа
+
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
             action = idea.get('action', 'BUY')
             reasoning = idea.get('reasoning', 'Нет описания')
+            support_level = idea.get('support_level')
+            resistance_level = idea.get('resistance_level')
+            trend = idea.get('trend')
+            risk_level = idea.get('risk_level', '')
+            pros = idea.get('pros', [])
+            cons = idea.get('cons', [])
+            recommendation = idea.get('recommendation', action)
+            current_price = idea.get('current_price', price)
 
             # Рассчитываем потенциальную доходность
             potential_return = 0
-            if price > 0 and target_price > 0:
-                potential_return = ((target_price - price) / price) * 100
+            if current_price > 0 and target_price > 0:
+                potential_return = ((target_price - current_price) / current_price) * 100
+
+            # Эмодзи рекомендации
+            rec_emoji = {'BUY': '🟢', 'HOLD': '🟡', 'SELL': '🔴'}.get(str(recommendation).upper(), '❔')
+            risk_emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(str(risk_level).lower(), '❔')
 
             ideas_text += f"*{i}.* `{ticker}`\n"
-            ideas_text += f"💰 Цена: {price:.2f} ₽\n"
-            ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
-            ideas_text += f"💡 {reasoning}\n\n"
+            ideas_text += f"{rec_emoji} *Рекомендация:* {recommendation}\n"
+            ideas_text += f"💰 *Текущая цена:* {current_price:.2f} ₽\n"
+            ideas_text += f"🎯 *Целевая цена:* {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
+            if support_level is not None:
+                ideas_text += f"🟢 *Поддержка:* {support_level:.2f} ₽\n"
+            if resistance_level is not None:
+                ideas_text += f"🔴 *Сопротивление:* {resistance_level:.2f} ₽\n"
+            if trend:
+                ideas_text += f"📊 *Тренд:* {trend}\n"
+            if risk_level:
+                ideas_text += f"⚠️ *Риск:* {risk_emoji} {risk_level.capitalize()}\n"
+            ideas_text += f"\n📝 *Анализ:*\n{reasoning}\n"
+            if pros:
+                ideas_text += "✅ *Плюсы:*\n"
+                for pro in pros:
+                    ideas_text += f"• {pro}\n"
+                ideas_text += "\n"
+            if cons:
+                ideas_text += "❌ *Минусы:*\n"
+                for con in cons:
+                    ideas_text += f"• {con}\n"
+                ideas_text += "\n"
 
             # Добавляем кнопки для покупки (по 2 в ряду)
             row_index = (i - 1) // 2  # Определяем номер ряда (0, 1, 2, 3, 4)
