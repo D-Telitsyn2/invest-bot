@@ -1222,6 +1222,7 @@ async def cmd_settings(message: Message):
 
 🎯 *Уровень риска:* {risk_levels.get(settings.get('risk_level', 'medium'), settings.get('risk_level', 'medium'))}
 💰 *Макс. сумма инвестирования:* {settings.get('max_investment_amount', 10000):,.0f} ₽
+🌍 *Таймзона:* {settings.get('timezone', 'Europe/Moscow')}
 🔔 *Уведомления:* {'✅ Включены' if settings.get('notifications', True) else '❌ Отключены'}
 
 Выберите что изменить:
@@ -1233,7 +1234,10 @@ async def cmd_settings(message: Message):
                 InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
             ],
             [
-                InlineKeyboardButton(text="🔔 Общие уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🌍 Таймзона", callback_data="set_timezone"),
+                InlineKeyboardButton(text="🔔 Общие уведомления", callback_data="toggle_notifications")
+            ],
+            [
                 InlineKeyboardButton(text="🔧 Настройки уведомлений", callback_data="notification_settings")
             ],
             [
@@ -1818,6 +1822,7 @@ async def show_settings(callback: CallbackQuery):
 
 🎯 *Уровень риска:* {risk_levels.get(settings.get('risk_level', 'medium'), settings.get('risk_level', 'medium'))}
 💰 *Макс. сумма инвестирования:* {settings.get('max_investment_amount', 10000):,.0f} ₽
+🌍 *Таймзона:* {settings.get('timezone', 'Europe/Moscow')}
 🔔 *Уведомления:* {'✅ Включены' if settings.get('notifications', True) else '❌ Отключены'}
 
 Выберите что изменить:
@@ -1829,7 +1834,10 @@ async def show_settings(callback: CallbackQuery):
                 InlineKeyboardButton(text="💰 Макс. сумма", callback_data="set_max_amount")
             ],
             [
-                InlineKeyboardButton(text="🔔 Общие уведомления", callback_data="toggle_notifications"),
+                InlineKeyboardButton(text="🌍 Таймзона", callback_data="set_timezone"),
+                InlineKeyboardButton(text="🔔 Общие уведомления", callback_data="toggle_notifications")
+            ],
+            [
                 InlineKeyboardButton(text="🔧 Настройки уведомлений", callback_data="notification_settings")
             ],
             [
@@ -1917,6 +1925,90 @@ async def process_max_amount(message: Message, state: FSMContext):
 
     except ValueError:
         await message.answer("❌ Некорректная сумма. Введите число (например: 50000)")
+
+@router.callback_query(F.data == "set_timezone")
+async def set_timezone(callback: CallbackQuery):
+    """Настройка таймзоны"""
+    timezone_text = """
+🌍 *Выберите вашу таймзону:*
+
+Уведомления будут приходить в указанное время по выбранной таймзоне:
+• Ежедневная сводка: 9:00
+• Еженедельный отчет: воскресенье 20:00
+    """
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🇷🇺 GMT+3 (Москва)", callback_data="tz_Europe/Moscow"),
+            InlineKeyboardButton(text="🇺🇦 GMT+2 (Киев)", callback_data="tz_Europe/Kiev")
+        ],
+        [
+            InlineKeyboardButton(text="🇰🇿 GMT+6 (Алматы)", callback_data="tz_Asia/Almaty"),
+            InlineKeyboardButton(text="🇺🇿 GMT+5 (Ташкент)", callback_data="tz_Asia/Tashkent")
+        ],
+        [
+            InlineKeyboardButton(text="🇰🇬 GMT+6 (Бишкек)", callback_data="tz_Asia/Bishkek"),
+            InlineKeyboardButton(text="🇦🇿 GMT+4 (Баку)", callback_data="tz_Asia/Baku")
+        ],
+        [
+            InlineKeyboardButton(text="🇦🇲 GMT+4 (Ереван)", callback_data="tz_Asia/Yerevan"),
+            InlineKeyboardButton(text="🇬🇪 GMT+4 (Тбилиси)", callback_data="tz_Asia/Tbilisi")
+        ],
+        [
+            InlineKeyboardButton(text="🇧🇾 GMT+3 (Минск)", callback_data="tz_Europe/Minsk"),
+            InlineKeyboardButton(text="🌍 GMT+0 (UTC)", callback_data="tz_UTC")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Назад к настройкам", callback_data="settings")
+        ]
+    ])
+
+    await callback.message.edit_text(timezone_text, reply_markup=keyboard, parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("tz_"))
+async def process_timezone_selection(callback: CallbackQuery):
+    """Обработка выбора таймзоны"""
+    try:
+        timezone = callback.data.replace("tz_", "")
+
+        # Словарь для отображения красивых названий
+        timezone_names = {
+            'Europe/Moscow': '🇷🇺 GMT+3 (Москва)',
+            'Europe/Kiev': '🇺🇦 GMT+2 (Киев)',
+            'Asia/Almaty': '🇰🇿 GMT+6 (Алматы)',
+            'Asia/Tashkent': '🇺🇿 GMT+5 (Ташкент)',
+            'Asia/Bishkek': '🇰🇬 GMT+6 (Бишкек)',
+            'Asia/Baku': '🇦🇿 GMT+4 (Баку)',
+            'Asia/Yerevan': '🇦🇲 GMT+4 (Ереван)',
+            'Asia/Tbilisi': '🇬🇪 GMT+4 (Тбилиси)',
+            'Europe/Minsk': '🇧🇾 GMT+3 (Минск)',
+            'UTC': '🌍 GMT+0 (UTC)'
+        }
+
+        # Обновляем настройки пользователя
+        await update_user_settings(callback.from_user.id, timezone=timezone)
+
+        timezone_display = timezone_names.get(timezone, timezone)
+
+        await callback.message.edit_text(
+            f"✅ *Таймзона установлена:* {timezone_display}\n\n"
+            f"🕘 Ежедневная сводка: 9:00\n"
+            f"🕚 Еженедельный отчет: воскресенье 20:00\n\n"
+            f"Время указано по выбранной таймзоне.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 К настройкам", callback_data="settings")]
+            ])
+        )
+
+        logger.info(f"Пользователь {callback.from_user.id} установил таймзону: {timezone}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при установке таймзоны: {e}")
+        await callback.message.edit_text("❌ Ошибка при установке таймзоны")
+
+    await callback.answer()
 
 @router.callback_query(F.data == "toggle_notifications")
 async def toggle_notifications(callback: CallbackQuery):

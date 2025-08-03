@@ -123,6 +123,7 @@ async def init_db():
             await connection.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS weekly_portfolio_report BOOLEAN DEFAULT TRUE")
             await connection.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS target_price_alerts BOOLEAN DEFAULT TRUE")
             await connection.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS price_updates BOOLEAN DEFAULT FALSE")
+            await connection.execute("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Moscow'")
 
         logger.info("База данных успешно инициализирована.")
 
@@ -273,7 +274,7 @@ async def get_user_settings(user_id: int) -> Optional[Dict]:
         return {
             'risk_level': 'medium', 'max_investment_amount': 10000, 'auto_invest': False,
             'notifications': True, 'daily_market_analysis': True, 'weekly_portfolio_report': True,
-            'target_price_alerts': True, 'price_updates': False
+            'target_price_alerts': True, 'price_updates': False, 'timezone': 'Europe/Moscow'
         }
 
 
@@ -439,7 +440,8 @@ async def get_users_with_notification_type(notification_type: str) -> List[Dict]
     async with pool.acquire() as connection:
         # Используем pg_get_expr для получения значения по умолчанию, если колонка не существует
         query = f"""
-            SELECT s.user_id, u.username, u.first_name, s.risk_level, s.max_investment_amount
+            SELECT s.user_id, u.username, u.first_name, s.risk_level, s.max_investment_amount,
+                   COALESCE(s.timezone, 'Europe/Moscow') as timezone
             FROM user_settings s
             JOIN users u ON s.user_id = u.telegram_id
             WHERE s.{notification_type} = TRUE
@@ -449,7 +451,7 @@ async def get_users_with_notification_type(notification_type: str) -> List[Dict]
             logger.info(f"Найдено {len(rows)} пользователей с включенным {notification_type}")
             result = [dict(row) for row in rows]
             for user in result:
-                logger.info(f"Пользователь: {user['user_id']} ({user.get('username', 'no_username')})")
+                logger.info(f"Пользователь: {user['user_id']} ({user.get('username', 'no_username')}) - {user.get('timezone', 'Europe/Moscow')}")
             return result
         except asyncpg.exceptions.UndefinedColumnError:
             logger.warning(f"Колонка {notification_type} не найдена в user_settings. Возвращен пустой список.")

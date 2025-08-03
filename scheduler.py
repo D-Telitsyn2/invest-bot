@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
@@ -47,20 +48,20 @@ class SchedulerService:
                 name="Обновление цен акций"
             )
 
-            # Ежедневный анализ рынка в 9:00
+            # Ежедневный анализ рынка - проверяем каждый час
             self.scheduler.add_job(
-                self.daily_market_analysis,
-                CronTrigger(hour=9, minute=0),
+                self.daily_market_analysis_with_timezone,
+                CronTrigger(minute=0),  # Каждый час в 0 минут
                 id="daily_analysis",
-                name="Ежедневный анализ рынка"
+                name="Ежедневный анализ рынка (с учетом таймзон)"
             )
 
-            # Еженедельный отчет по воскресеньям в 20:00
+            # Еженедельный отчет - проверяем каждый час в воскресенье
             self.scheduler.add_job(
-                self.weekly_portfolio_report,
-                CronTrigger(day_of_week="sun", hour=20, minute=0),
+                self.weekly_portfolio_report_with_timezone,
+                CronTrigger(day_of_week="sun", minute=0),  # Каждый час в воскресенье
                 id="weekly_report",
-                name="Еженедельный отчет"
+                name="Еженедельный отчет (с учетом таймзон)"
             )
 
             # Проверка целевых цен каждые 30 минут в рабочее время
@@ -457,6 +458,171 @@ class SchedulerService:
         """Список всех задач"""
         jobs = self.scheduler.get_jobs()
         return [{"id": job.id, "name": job.name, "next_run": job.next_run_time} for job in jobs]
+
+    async def daily_market_analysis_with_timezone(self):
+        """Ежедневный анализ рынка с учетом таймзон пользователей (9:00 по местному времени)"""
+        try:
+            current_utc = datetime.now(pytz.UTC)
+            logger.info(f"📊 Проверка времени для ежедневного анализа. UTC: {current_utc.strftime('%H:%M')}")
+
+            # Получаем пользователей с включенными ежедневными уведомлениями
+            try:
+                users = await get_users_with_notification_type('daily_market_analysis')
+                logger.info(f"Найдено {len(users)} пользователей с включенной ежедневной сводкой")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей из БД: {e}")
+                return
+
+            if not self.bot or not users:
+                return
+
+            # Проверяем для каждого пользователя, не 9:00 ли по их времени
+            for user in users:
+                try:
+                    user_timezone = user.get('timezone', 'Europe/Moscow')
+                    tz = pytz.timezone(user_timezone)
+                    user_time = current_utc.astimezone(tz)
+
+                    # Проверяем, что сейчас 9:00 по времени пользователя
+                    if user_time.hour == 9 and user_time.minute == 0:
+                        await self._send_daily_analysis_to_user(user)
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка обработки пользователя {user.get('user_id')}: {e}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка в daily_market_analysis_with_timezone: {e}")
+
+    async def weekly_portfolio_report_with_timezone(self):
+        """Еженедельный отчет портфеля с учетом таймзон пользователей (20:00 воскресенье по местному времени)"""
+        try:
+            current_utc = datetime.now(pytz.UTC)
+            logger.info(f"📊 Проверка времени для еженедельного отчета. UTC: {current_utc.strftime('%H:%M')}")
+
+            # Получаем пользователей с включенными еженедельными отчетами
+            try:
+                users = await get_users_with_notification_type('weekly_portfolio_report')
+                logger.info(f"Найдено {len(users)} пользователей с включенным еженедельным отчетом")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей из БД: {e}")
+                return
+
+            if not self.bot or not users:
+                return
+
+            # Проверяем для каждого пользователя, не 20:00 воскресенья ли по их времени
+            for user in users:
+                try:
+                    user_timezone = user.get('timezone', 'Europe/Moscow')
+                    tz = pytz.timezone(user_timezone)
+                    user_time = current_utc.astimezone(tz)
+
+                    # Проверяем, что сейчас воскресенье 20:00 по времени пользователя
+                    if user_time.weekday() == 6 and user_time.hour == 20 and user_time.minute == 0:  # 6 = воскресенье
+                        await self._send_weekly_report_to_user(user)
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка обработки пользователя {user.get('user_id')}: {e}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка в weekly_portfolio_report_with_timezone: {e}")
+
+    async def _send_daily_analysis_to_user(self, user):
+        """Отправка ежедневного анализа конкретному пользователю"""
+        try:
+            # Проверяем настройки пользователя
+            user_settings = await get_user_settings(user['user_id'])
+            if not user_settings or not user_settings.get('notifications', True):
+                return
+
+            # Получаем персональные рекомендации
+            ideas = await get_investment_ideas(
+                budget=user['max_investment_amount'],
+                risk_level=user['risk_level']
+            )
+
+            if ideas and self.bot:
+                # Формируем сообщение
+                message = "🌅 *Доброе утро! Ежедневная сводка рынка*\n\n"
+                message += "📈 *Топ идеи на сегодня:*\n\n"
+
+                for i, idea in enumerate(ideas[:3], 1):
+                    message += f"{i}. `{idea['ticker']}` - {idea['action']}\n"
+                    message += f"   💰 Цена: {idea['price']:.2f} ₽\n"
+                    message += f"   🎯 Цель: {idea['target_price']:.2f} ₽\n"
+                    message += f"   📝 {idea['reasoning'][:100]}...\n\n"
+
+                message += "💡 Получить полный анализ: /ideas"
+
+                await self.bot.send_message(
+                    chat_id=user['user_id'],
+                    text=message,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"✅ Ежедневная сводка отправлена пользователю {user['user_id']}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки ежедневной сводки пользователю {user['user_id']}: {e}")
+
+    async def _send_weekly_report_to_user(self, user):
+        """Отправка еженедельного отчета конкретному пользователю"""
+        try:
+            # Проверяем настройки пользователя
+            user_settings = await get_user_settings(user['user_id'])
+            if not user_settings or not user_settings.get('notifications', True):
+                return
+
+            # Получаем портфель пользователя для отчета
+            portfolio = await get_user_portfolio_for_notifications(user['user_id'])
+
+            if portfolio and self.bot:
+                # Формируем еженедельный отчет
+                message = "📊 *Еженедельный отчет портфеля*\n\n"
+
+                total_value = 0
+                total_cost = 0
+                best_position = None
+                worst_position = None
+
+                for position in portfolio:
+                    current_value = position['quantity'] * position['current_price']
+                    invested_value = position['quantity'] * position['avg_price']
+
+                    total_value += current_value
+                    total_cost += invested_value
+
+                    # Определяем лучшую и худшую позицию
+                    if not best_position or position['return_pct'] > best_position['return_pct']:
+                        best_position = position
+                    if not worst_position or position['return_pct'] < worst_position['return_pct']:
+                        worst_position = position
+
+                # Общая статистика
+                total_pnl = total_value - total_cost
+                total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
+
+                message += f"💰 *Общая стоимость:* {total_value:.2f} ₽\n"
+                message += f"📈 *P&L:* {total_pnl:+.2f} ₽ ({total_pnl_pct:+.1f}%)\n\n"
+
+                if best_position:
+                    message += f"🏆 *Лучшая позиция:* `{best_position['ticker']}`\n"
+                    message += f"   📊 Доходность: +{best_position['return_pct']:.1f}%\n\n"
+
+                if worst_position and worst_position != best_position:
+                    message += f"📉 *Требует внимания:* `{worst_position['ticker']}`\n"
+                    message += f"   📊 Доходность: {worst_position['return_pct']:+.1f}%\n\n"
+
+                message += "💡 Подробный анализ: /portfolio"
+
+                await self.bot.send_message(
+                    chat_id=user['user_id'],
+                    text=message,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"✅ Еженедельный отчет отправлен пользователю {user['user_id']}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки еженедельного отчета пользователю {user['user_id']}: {e}")
 
 # Глобальный экземпляр планировщика
 scheduler_service = SchedulerService()
