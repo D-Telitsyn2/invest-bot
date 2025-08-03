@@ -139,6 +139,13 @@ class XAIClient:
 
 ВАЖНО: Подбери РАЗНООБРАЗНЫЕ компании из разных секторов для диверсификации.
 
+ЦЕЛЕВЫЕ ЦЕНЫ ДОЛЖНЫ БЫТЬ РЕАЛИСТИЧНЫМИ:
+- Для консервативных идей (low risk): +5-15% от текущей цены
+- Для сбалансированных идей (medium risk): +10-25% от текущей цены
+- Для агрессивных идей (high risk): +15-40% от текущей цены
+- НЕ завышай целевые цены! Они должны быть достижимы в указанный срок
+- Учитывай фундаментальные показатели компании и рыночную ситуацию
+
 СТРОГО СОБЛЮДАЙ УРОВЕНЬ РИСКА {risk_level.upper()}:
 {f"- КОНСЕРВАТИВНАЯ СТРАТЕГИЯ: Выбирай ТОЛЬКО надежные дивидендные компании с долгой историей, государственные банки, нефтегазовый сектор" if risk_level == 'low' else ""}
 {f"- СБАЛАНСИРОВАННАЯ СТРАТЕГИЯ: Микс из стабильных лидеров (70%) и перспективных компаний второго эшелона (30%)" if risk_level == 'medium' else ""}
@@ -157,7 +164,7 @@ class XAIClient:
 """
 
             messages = [
-                {"role": "system", "content": "Ты инвестиционный аналитик российского рынка. Отвечай ТОЛЬКО чистым JSON массивом без дополнительного текста. Анализируй реальные компании MOEX и ОБЯЗАТЕЛЬНО указывай реалистичные целевые цены на основе фундментального и технического анализа."},
+                {"role": "system", "content": "Ты инвестиционный аналитик российского рынка. Отвечай ТОЛЬКО чистым JSON массивом без дополнительного текста. Анализируй реальные компании MOEX и ОБЯЗАТЕЛЬНО указывай РЕАЛИСТИЧНЫЕ целевые цены. Целевая цена должна быть обоснованной и достижимой в указанный срок. НЕ завышай прогнозы - лучше консервативная, но реалистичная оценка."},
                 {"role": "user", "content": prompt}
             ]
 
@@ -194,12 +201,34 @@ class XAIClient:
                 tickers = [idea['ticker'] for idea in ideas]
                 real_prices = await market_data.get_multiple_moex_prices(tickers)
 
-                # Добавляем реальные цены к идеям
+                # Добавляем реальные цены к идеям и валидируем целевые цены
                 for idea in ideas:
                     ticker = idea['ticker']
                     if ticker in real_prices:
-                        idea['price'] = real_prices[ticker]
-                        logger.info(f"✅ Добавлена реальная цена для {ticker}: {real_prices[ticker]} ₽")
+                        current_price = real_prices[ticker]
+                        idea['price'] = current_price
+
+                        # Валидация и коррекция целевой цены
+                        target_price = idea.get('target_price', current_price)
+
+                        # Проверяем, что целевая цена реалистична
+                        max_increase = 2.0  # максимум 100% роста
+                        min_decrease = 0.5  # максимум 50% падения
+
+                        if target_price <= 0 or target_price > current_price * max_increase or target_price < current_price * min_decrease:
+                            logger.warning(f"Некорректная целевая цена {target_price} для {ticker} (текущая: {current_price}), корректируем")
+
+                            # Устанавливаем реалистичную целевую цену в зависимости от уровня риска
+                            if risk_level == 'low':
+                                target_price = current_price * 1.10  # +10% для консервативных
+                            elif risk_level == 'medium':
+                                target_price = current_price * 1.20  # +20% для сбалансированных
+                            else:  # high
+                                target_price = current_price * 1.35  # +35% для агрессивных
+
+                            idea['target_price'] = round(target_price, 2)
+
+                        logger.info(f"✅ {ticker}: цена {current_price:.2f} ₽ → цель {idea['target_price']:.2f} ₽ (+{((idea['target_price']/current_price-1)*100):.1f}%)")
                     else:
                         # Если не удалось получить цену, используем примерную
                         idea['price'] = idea.get('target_price', 100.0) * 0.9

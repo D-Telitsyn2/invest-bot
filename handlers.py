@@ -265,9 +265,12 @@ async def cmd_ideas(message: Message, state: FSMContext):
                 InlineKeyboardButton(text=f"💳 {ticker}", callback_data=f"select_idea_{i-1}")
             )
 
-        # Добавляем кнопку обновления идей
+        # Добавляем кнопку обновления идей и возврата в меню
         keyboard_buttons.append([
             InlineKeyboardButton(text="🔄 Обновить идеи", callback_data="get_ideas")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
@@ -1207,9 +1210,10 @@ async def show_portfolio_callback(callback: CallbackQuery):
         portfolio = await get_user_portfolio(callback.from_user.id)
         if not portfolio:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💡 Получить идеи", callback_data="get_ideas")]
+                [InlineKeyboardButton(text="💡 Получить идеи", callback_data="get_ideas")],
+                [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
             ])
-            await callback.message.answer("💼 Ваш портфель пуст\n\nНачните инвестировать!", reply_markup=keyboard)
+            await callback.message.edit_text("💼 Ваш портфель пуст\n\nНачните инвестировать!", reply_markup=keyboard)
             return
         from market_data import market_data
         tickers = [pos['ticker'] for pos in portfolio]
@@ -1241,10 +1245,21 @@ async def show_portfolio_callback(callback: CallbackQuery):
             total_emoji = "📈" if total_profit >= 0 else "📉"
             total_sign = "+" if total_profit >= 0 else ""
             portfolio_text += f"\n{total_emoji} *Общий P&L:* {total_sign}{total_profit:.2f} ₽ ({total_sign}{total_percent:.1f}%)"
-        await callback.message.answer(portfolio_text, parse_mode="Markdown")
+        # Добавляем кнопки управления портфелем и возврата в меню
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑️ Продать акции", callback_data="sell_stock"),
+                InlineKeyboardButton(text="💡 Новые идеи", callback_data="get_ideas")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")
+            ]
+        ])
+
+        await callback.message.edit_text(portfolio_text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Ошибка при получении портфеля через callback: {e}")
-        await callback.message.answer("❌ Ошибка при получении портфеля")
+        await callback.message.edit_text("❌ Ошибка при получении портфеля")
 
 @router.callback_query(F.data == "target_prices")
 async def show_target_prices(callback: CallbackQuery):
@@ -1297,10 +1312,87 @@ async def show_target_prices(callback: CallbackQuery):
 @router.callback_query(F.data == "get_ideas")
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     """Получить идеи через callback"""
-    # Сначала отвечаем на callback, чтобы избежать истечения времени ожидания
-    await callback.answer("🤖 Получаю рекомендации...")
-    # Затем выполняем основную логику получения идей
-    await cmd_ideas(callback.message, state)
+    await callback.answer("🤖 Анализирую рынок...")
+
+    try:
+        # Получаем настройки пользователя
+        settings = await get_user_settings(callback.from_user.id)
+
+        # Если настройки не найдены, используем значения по умолчанию
+        if not settings:
+            logger.warning(f"Настройки не найдены для пользователя {callback.from_user.id}, используем значения по умолчанию")
+            settings = {
+                'max_investment_amount': 10000,
+                'risk_level': 'medium'
+            }
+
+        # Получаем идеи с учетом настроек
+        xai_client = XAIClient()
+        ideas = await xai_client.get_investment_ideas(
+            budget=settings['max_investment_amount'],
+            risk_level=settings['risk_level']
+        )
+
+        if not ideas:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+            ])
+            await callback.message.edit_text("❌ Не удалось получить рекомендации", reply_markup=keyboard)
+            return
+
+        # Сохраняем идеи в состоянии для последующего выбора
+        await state.update_data(investment_ideas=ideas)
+
+        # Формируем сообщение с идеями
+        ideas_text = "🎯 *Инвестиционные идеи:*\n\n"
+        keyboard_buttons = []
+
+        for i, idea in enumerate(ideas[:7], 1):  # Показываем максимум 7 идей для быстрого ответа
+            ticker = idea.get('ticker', 'N/A')
+            price = idea.get('price', 0)
+            target_price = idea.get('target_price', 0)
+            action = idea.get('action', 'BUY')
+            reasoning = idea.get('reasoning', 'Нет описания')
+
+            # Рассчитываем потенциальную доходность
+            potential_return = 0
+            if price > 0 and target_price > 0:
+                potential_return = ((target_price - price) / price) * 100
+
+            ideas_text += f"*{i}.* `{ticker}`\n"
+            ideas_text += f"💰 Цена: {price:.2f} ₽\n"
+            ideas_text += f"📈 Прогноз: {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
+            ideas_text += f"💡 {reasoning}\n\n"
+
+            # Добавляем кнопки для покупки (по 2 в ряду)
+            row_index = (i - 1) // 2  # Определяем номер ряда (0, 1, 2, 3, 4)
+
+            # Создаем новый ряд если нужно
+            while len(keyboard_buttons) <= row_index:
+                keyboard_buttons.append([])
+
+            # Добавляем кнопку в соответствующий ряд
+            keyboard_buttons[row_index].append(
+                InlineKeyboardButton(text=f"💳 {ticker}", callback_data=f"select_idea_{i-1}")
+            )
+
+        # Добавляем кнопку обновления идей и возврата в меню
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🔄 Обновить идеи", callback_data="get_ideas")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback.message.edit_text(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении инвестиционных идей: {e}")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+        ])
+        await callback.message.edit_text("❌ Ошибка при получении инвестиционных идей", reply_markup=keyboard)
 
 @router.callback_query(F.data == "finances")
 async def show_finances_callback(callback: CallbackQuery):
@@ -1311,7 +1403,10 @@ async def show_finances_callback(callback: CallbackQuery):
         stats = await get_user_trading_stats(callback.from_user.id)
 
         if not stats:
-            await callback.message.answer("💰 Финансовая статистика пуста")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+            ])
+            await callback.message.edit_text("💰 Финансовая статистика пуста", reply_markup=keyboard)
             return
 
         # Формируем сообщение со статистикой
@@ -1356,11 +1451,19 @@ async def show_finances_callback(callback: CallbackQuery):
                 date_str = trade['created_at'].strftime('%d.%m.%Y') if trade.get('created_at') else 'N/A'
                 message += f"{i}. {trade['ticker']}: +{trade['profit_loss']:,.0f} ₽ ({date_str})\n"
 
-        await callback.message.answer(message, parse_mode="Markdown")
+        # Добавляем кнопку возврата в меню
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+        ])
+
+        await callback.message.edit_text(message, parse_mode="Markdown", reply_markup=keyboard)
 
     except Exception as e:
         logger.error(f"Ошибка при показе финансовой статистики: {e}")
-        await callback.message.answer("❌ Ошибка при получении финансовой статистики")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+        ])
+        await callback.message.edit_text("❌ Ошибка при получении финансовой статистики", reply_markup=keyboard)
 
 @router.message(Command("finances"))
 async def cmd_finances(message: Message):
@@ -1408,7 +1511,10 @@ async def show_history_callback(callback: CallbackQuery):
     try:
         history = await get_order_history(callback.from_user.id)
         if not history:
-            await callback.message.edit_text("📊 История операций пуста")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+            ])
+            await callback.message.edit_text("📊 История операций пуста", reply_markup=keyboard)
             return
         history_text = "📊 *История операций:*\n\n"
         for order in history[-10:]:
@@ -1435,7 +1541,13 @@ async def show_history_callback(callback: CallbackQuery):
                 history_text += f"{pnl_emoji} P&L: {profit_loss:+.2f} ₽\n"
 
             history_text += "\n"
-        await callback.message.edit_text(history_text, parse_mode="Markdown")
+
+        # Добавляем кнопку возврата в меню
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+        ])
+
+        await callback.message.edit_text(history_text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")
         await callback.message.edit_text("❌ Ошибка при получении истории операций")
