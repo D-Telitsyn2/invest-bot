@@ -903,7 +903,12 @@ async def sell_custom_price(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.answer(f"✏️ Введите желаемую цену продажи для {ticker} (в рублях):")
-    await state.update_data(custom_sell_ticker=ticker)
+
+    # Получаем существующие данные и добавляем к ним custom_sell_ticker
+    data = await state.get_data()
+    data['custom_sell_ticker'] = ticker
+    await state.update_data(**data)
+
     await state.set_state(InvestmentStates.waiting_for_custom_price)
 
 @router.message(InvestmentStates.waiting_for_custom_price)
