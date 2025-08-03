@@ -1391,7 +1391,7 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-        await callback.message.edit_text(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
+        await callback.message.answer(ideas_text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка при получении инвестиционных идей: {e}")
