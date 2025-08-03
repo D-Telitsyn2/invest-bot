@@ -250,7 +250,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
             pros = idea.get('pros', [])
             cons = idea.get('cons', [])
             recommendation = idea.get('recommendation', action)
-            current_price = idea.get('current_price', price)
+            current_price = price  # Используем price, которая уже обновлена с реальными данными MOEX
 
             # Рассчитываем потенциальную доходность
             potential_return = 0
@@ -1408,7 +1408,7 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
             pros = idea.get('pros', [])
             cons = idea.get('cons', [])
             recommendation = idea.get('recommendation', action)
-            current_price = idea.get('current_price', price)
+            current_price = price  # Используем price, которая уже обновлена с реальными данными MOEX
 
             # Рассчитываем потенциальную доходность
             potential_return = 0
