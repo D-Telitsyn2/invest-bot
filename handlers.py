@@ -1110,7 +1110,7 @@ async def cmd_history(message: Message):
 
         # Используем таблицу для экономии места
         history_text = "📊 *История операций:*\n\n"
-        history_text += "`Дата    Время Тип   Тикер   Кол-во  Цена    P&L`\n"
+        history_text += "`Дата | Время | Тип | Тикер | Кол-во | Цена`\n"
         history_text += "`────────────────────────────────────────────────`\n"
 
         for order in history[-15:]:  # Последние 15 операций
@@ -1147,21 +1147,11 @@ async def cmd_history(message: Message):
             quantity = f"{order['quantity']:>4}"
             price = f"{order['price']:>7.1f}"
 
-            # P&L для продаж
-            profit_loss = order.get('profit_loss', 0)
-            if operation_type == 'SELL' and profit_loss != 0:
-                if profit_loss > 0:
-                    pnl_str = f"+{profit_loss:>6.0f}"
-                else:
-                    pnl_str = f"{profit_loss:>7.0f}"
-            else:
-                pnl_str = "       "
-
-            history_text += f"`{date_str} {time_str} {op_type} {ticker} {quantity} {price} {pnl_str}`\n"
+            history_text += f"`{date_str} | {time_str} | {op_type} | {ticker} | {quantity} | {price}`\n"
 
         history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
 
-        await message.answer(history_text, parse_mode="Markdown")
+        await message.answer(f"<pre>{history_text}</pre>", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка при получении истории: {e}")
@@ -1533,7 +1523,7 @@ async def show_history_callback(callback: CallbackQuery):
 
         # Используем таблицу для экономии места
         history_text = "📊 *История операций:*\n\n"
-        history_text += "`Дата    Время Тип   Тикер   Кол-во  Цена    P&L`\n"
+        history_text += "`Дата | Время | Тип | Тикер | Кол-во | Цена`\n"
         history_text += "`────────────────────────────────────────────────`\n"
 
         for order in history[-15:]:  # Последние 15 операций
@@ -1570,17 +1560,7 @@ async def show_history_callback(callback: CallbackQuery):
             quantity = f"{order['quantity']:>4}"
             price = f"{order['price']:>7.1f}"
 
-            # P&L для продаж
-            profit_loss = order.get('profit_loss', 0)
-            if operation_type == 'SELL' and profit_loss != 0:
-                if profit_loss > 0:
-                    pnl_str = f"+{profit_loss:>6.0f}"
-                else:
-                    pnl_str = f"{profit_loss:>7.0f}"
-            else:
-                pnl_str = "       "
-
-            history_text += f"`{date_str} {time_str} {op_type} {ticker} {quantity} {price} {pnl_str}`\n"
+            history_text += f"`{date_str} | {time_str} | {op_type} | {ticker} | {quantity} | {price}`\n"
 
         history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
 
@@ -1589,7 +1569,7 @@ async def show_history_callback(callback: CallbackQuery):
             [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
         ])
 
-        await callback.message.edit_text(history_text, parse_mode="Markdown", reply_markup=keyboard)
+        await callback.message.edit_text(f"<pre>{history_text}</pre>", parse_mode="HTML", reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
