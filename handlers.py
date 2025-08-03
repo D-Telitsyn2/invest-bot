@@ -1108,32 +1108,58 @@ async def cmd_history(message: Message):
             await message.answer("📊 История операций пуста")
             return
 
+        # Используем таблицу для экономии места
         history_text = "📊 *История операций:*\n\n"
+        history_text += "`Дата    Время Тип   Тикер   Кол-во  Цена    P&L`\n"
+        history_text += "`────────────────────────────────────────────────`\n"
 
-        for order in history[-10:]:  # Последние 10 операций
-            # Форматируем дату из created_at
+        for order in history[-15:]:  # Последние 15 операций
+            # Форматируем дату и время
             created_at = order.get('created_at')
             if created_at:
                 if isinstance(created_at, str):
-                    date_str = created_at.split('T')[0]  # Берем только дату без времени
+                    # Парсим ISO формат
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        date_str = dt.strftime('%d.%m')
+                        time_str = dt.strftime('%H:%M')
+                    except:
+                        date_str = created_at.split('T')[0][-5:]  # MM-DD
+                        time_str = created_at.split('T')[1][:5] if 'T' in created_at else '     '
                 else:
-                    date_str = created_at.strftime('%Y-%m-%d')
+                    date_str = created_at.strftime('%d.%m')
+                    time_str = created_at.strftime('%H:%M')
             else:
-                date_str = "Неизвестно"
+                date_str = "  .  "
+                time_str = "  :  "
 
-            operation_emoji = "🛒" if order['order_type'].upper() == 'BUY' else "💸"
+            # Определяем тип операции
+            operation_type = order.get('operation_type', '').upper()
+            if operation_type == 'BUY':
+                op_type = " BUY"
+            elif operation_type == 'SELL':
+                op_type = "SELL"
+            else:
+                op_type = "    "
+
+            ticker = order['ticker'][:5].ljust(5)  # Обрезаем до 5 символов
+            quantity = f"{order['quantity']:>4}"
+            price = f"{order['price']:>7.1f}"
+
+            # P&L для продаж
             profit_loss = order.get('profit_loss', 0)
+            if operation_type == 'SELL' and profit_loss != 0:
+                if profit_loss > 0:
+                    pnl_str = f"+{profit_loss:>6.0f}"
+                else:
+                    pnl_str = f"{profit_loss:>7.0f}"
+            else:
+                pnl_str = "       "
 
-            history_text += f"📅 {date_str}\n"
-            history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
-            history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"💸 Сумма: {order['total_amount']:.2f} ₽\n"
+            history_text += f"`{date_str} {time_str} {op_type} {ticker} {quantity} {price} {pnl_str}`\n"
 
-            if order['order_type'].upper() == 'SELL' and profit_loss != 0:
-                pnl_emoji = "📈" if profit_loss >= 0 else "📉"
-                history_text += f"{pnl_emoji} P&L: {profit_loss:+.2f} ₽\n"
-
-            history_text += "\n"
+        history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
 
         await message.answer(history_text, parse_mode="Markdown")
 
@@ -1506,31 +1532,59 @@ async def show_history_callback(callback: CallbackQuery):
             ])
             await callback.message.edit_text("📊 История операций пуста", reply_markup=keyboard)
             return
+
+        # Используем таблицу для экономии места
         history_text = "📊 *История операций:*\n\n"
-        for order in history[-10:]:
-            # Форматируем дату из created_at
+        history_text += "`Дата    Время Тип   Тикер   Кол-во  Цена    P&L`\n"
+        history_text += "`────────────────────────────────────────────────`\n"
+
+        for order in history[-15:]:  # Последние 15 операций
+            # Форматируем дату и время
             created_at = order.get('created_at')
             if created_at:
                 if isinstance(created_at, str):
-                    date_str = created_at.split('T')[0]  # Берем только дату без времени
+                    # Парсим ISO формат
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        date_str = dt.strftime('%d.%m')
+                        time_str = dt.strftime('%H:%M')
+                    except:
+                        date_str = created_at.split('T')[0][-5:]  # MM-DD
+                        time_str = created_at.split('T')[1][:5] if 'T' in created_at else '     '
                 else:
-                    date_str = created_at.strftime('%Y-%m-%d')
+                    date_str = created_at.strftime('%d.%m')
+                    time_str = created_at.strftime('%H:%M')
             else:
-                date_str = "Неизвестно"
+                date_str = "  .  "
+                time_str = "  :  "
 
-            operation_emoji = "🛒" if order['order_type'].upper() == 'BUY' else "💸"
+            # Определяем тип операции
+            operation_type = order.get('operation_type', '').upper()
+            if operation_type == 'BUY':
+                op_type = " BUY"
+            elif operation_type == 'SELL':
+                op_type = "SELL"
+            else:
+                op_type = "    "
+
+            ticker = order['ticker'][:5].ljust(5)  # Обрезаем до 5 символов
+            quantity = f"{order['quantity']:>4}"
+            price = f"{order['price']:>7.1f}"
+
+            # P&L для продаж
             profit_loss = order.get('profit_loss', 0)
+            if operation_type == 'SELL' and profit_loss != 0:
+                if profit_loss > 0:
+                    pnl_str = f"+{profit_loss:>6.0f}"
+                else:
+                    pnl_str = f"{profit_loss:>7.0f}"
+            else:
+                pnl_str = "       "
 
-            history_text += f"📅 {date_str}\n"
-            history_text += f"{operation_emoji} {order['ticker']}: {order['quantity']} шт.\n"
-            history_text += f"💰 Цена: {order['price']:.2f} ₽\n"
-            history_text += f"💸 Сумма: {order['total_amount']:.2f} ₽\n"
+            history_text += f"`{date_str} {time_str} {op_type} {ticker} {quantity} {price} {pnl_str}`\n"
 
-            if order['order_type'].upper() == 'SELL' and profit_loss != 0:
-                pnl_emoji = "📈" if profit_loss >= 0 else "📉"
-                history_text += f"{pnl_emoji} P&L: {profit_loss:+.2f} ₽\n"
-
-            history_text += "\n"
+        history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
 
         # Добавляем кнопку возврата в меню
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1540,7 +1594,10 @@ async def show_history_callback(callback: CallbackQuery):
         await callback.message.edit_text(history_text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")
-        await callback.message.edit_text("❌ Ошибка при получении истории операций")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
+        ])
+        await callback.message.edit_text("❌ Ошибка при получении истории операций", reply_markup=keyboard)
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):

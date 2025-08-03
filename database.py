@@ -292,10 +292,10 @@ async def get_all_tickers() -> List[str]:
         return [row['ticker'] for row in rows]
 
 async def get_order_history(user_id: int, limit: int = 50) -> List[Dict]:
-    """Получение истории заявок пользователя."""
+    """Получение истории операций пользователя."""
     pool = await get_pool()
     async with pool.acquire() as connection:
-        rows = await connection.fetch("SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", user_id, limit)
+        rows = await connection.fetch("SELECT * FROM history WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", user_id, limit)
         return [dict(row) for row in rows]
 
 async def update_target_price(user_id: int, ticker: str, target_price: float):
