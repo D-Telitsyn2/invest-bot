@@ -164,6 +164,14 @@ async def cmd_target_price(message: Message, state: FSMContext):
     try:
         user_id = message.from_user.id
 
+        # Проверяем, есть ли параметры в команде
+        import re
+        match = re.match(r'^/target\s+([A-Z]{3,5})\s+(\d+\.?\d*)$', message.text)
+        if match:
+            # Если есть параметры - устанавливаем целевую цену
+            await set_target_price_logic(message, match.group(1).upper(), float(match.group(2)))
+            return
+
         # Получаем портфель пользователя
         portfolio = await get_user_portfolio(user_id)
 
@@ -198,6 +206,55 @@ async def cmd_target_price(message: Message, state: FSMContext):
         await message.answer(target_text, parse_mode="Markdown")
 
     except Exception as e:
+        logger.error(f"Ошибка при показе целевых цен: {e}")
+        await message.answer("❌ Ошибка при получении данных")
+
+async def set_target_price_logic(message: Message, ticker: str, target_price: float):
+    """Логика установки целевой цены для конкретного тикера"""
+    try:
+        user_id = message.from_user.id
+
+        # Проверяем, есть ли такая позиция в портфеле
+        portfolio = await get_user_portfolio(user_id)
+        position = next((p for p in portfolio if p['ticker'] == ticker), None)
+
+        if not position:
+            await message.answer(f"❌ Позиция `{ticker}` не найдена в вашем портфеле.\nСначала добавьте её через /ideas", parse_mode="Markdown")
+            return
+
+        # Устанавливаем целевую цену
+        from database import update_target_price
+        await update_target_price(user_id, ticker, target_price)
+
+        # Рассчитываем потенциальную прибыль
+        avg_price = position['avg_price']
+        current_price = position.get('current_price', avg_price)
+        quantity = position['quantity']
+
+        profit_from_avg = ((target_price - avg_price) / avg_price) * 100
+        profit_from_current = ((target_price - current_price) / current_price) * 100
+
+        profit_amount = (target_price - avg_price) * quantity
+
+        success_text = f"✅ *Целевая цена установлена!*\n\n"
+        success_text += f"📊 `{ticker}`\n"
+        success_text += f"💰 Ваша цена: {avg_price:.2f} ₽\n"
+        success_text += f"💵 Текущая: {current_price:.2f} ₽\n"
+        success_text += f"🎯 Целевая: {target_price:.2f} ₽\n\n"
+        success_text += f"📈 Потенциал от покупки: +{profit_from_avg:.1f}%\n"
+        success_text += f"📊 От текущей цены: {profit_from_current:+.1f}%\n"
+        success_text += f"💎 Потенциальная прибыль: {profit_amount:+,.0f} ₽\n\n"
+        success_text += f"🔔 Вы получите уведомление, когда цена достигнет {target_price:.2f} ₽"
+
+        await message.answer(success_text, parse_mode="Markdown")
+
+        logger.info(f"Пользователь {user_id} установил целевую цену {target_price} для {ticker}")
+
+    except ValueError:
+        await message.answer("❌ Неверный формат цены. Используйте числа, например: 350.5")
+    except Exception as e:
+        logger.error(f"Ошибка при установке целевой цены: {e}")
+        await message.answer("❌ Ошибка при установке целевой цены")
         logger.error(f"Ошибка при показе целевых цен: {e}")
         await message.answer("❌ Ошибка при получении данных")
 
@@ -605,63 +662,6 @@ async def toggle_price_updates(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка toggle_price_updates: {e}")
         await callback.answer("❌ Ошибка при изменении настройки")
-
-@router.message(F.text.regexp(r'^/target\s+([A-Z]{3,5})\s+(\d+\.?\d*)$'))
-async def set_target_price(message: Message):
-    """Установка целевой цены для конкретного тикера"""
-    try:
-        # Извлекаем тикер и цену из сообщения
-        import re
-        match = re.match(r'^/target\s+([A-Z]{3,5})\s+(\d+\.?\d*)$', message.text)
-        if not match:
-            await message.answer("❌ Неверный формат. Используйте: `/target ТИКЕР цена`\nНапример: `/target SBER 350.5`", parse_mode="Markdown")
-            return
-
-        ticker = match.group(1).upper()
-        target_price = float(match.group(2))
-        user_id = message.from_user.id
-
-        # Проверяем, есть ли такая позиция в портфеле
-        portfolio = await get_user_portfolio(user_id)
-        position = next((p for p in portfolio if p['ticker'] == ticker), None)
-
-        if not position:
-            await message.answer(f"❌ Позиция `{ticker}` не найдена в вашем портфеле.\nСначала добавьте её через /ideas", parse_mode="Markdown")
-            return
-
-        # Устанавливаем целевую цену
-        from database import update_target_price
-        await update_target_price(user_id, ticker, target_price)
-
-        # Рассчитываем потенциальную прибыль
-        avg_price = position['avg_price']
-        current_price = position.get('current_price', avg_price)
-        quantity = position['quantity']
-
-        profit_from_avg = ((target_price - avg_price) / avg_price) * 100
-        profit_from_current = ((target_price - current_price) / current_price) * 100
-
-        profit_amount = (target_price - avg_price) * quantity
-
-        success_text = f"✅ *Целевая цена установлена!*\n\n"
-        success_text += f"📊 `{ticker}`\n"
-        success_text += f"💰 Ваша цена: {avg_price:.2f} ₽\n"
-        success_text += f"💵 Текущая: {current_price:.2f} ₽\n"
-        success_text += f"🎯 Целевая: {target_price:.2f} ₽\n\n"
-        success_text += f"📈 Потенциал от покупки: +{profit_from_avg:.1f}%\n"
-        success_text += f"📊 От текущей цены: {profit_from_current:+.1f}%\n"
-        success_text += f"💎 Потенциальная прибыль: {profit_amount:+,.0f} ₽\n\n"
-        success_text += f"🔔 Вы получите уведомление, когда цена достигнет {target_price:.2f} ₽"
-
-        await message.answer(success_text, parse_mode="Markdown")
-
-        logger.info(f"Пользователь {user_id} установил целевую цену {target_price} для {ticker}")
-
-    except ValueError:
-        await message.answer("❌ Неверный формат цены. Используйте числа, например: 350.5")
-    except Exception as e:
-        logger.error(f"Ошибка при установке целевой цены: {e}")
-        await message.answer("❌ Ошибка при установке целевой цены")
 
 def register_handlers(dp):
     """Регистрация всех обработчиков"""
