@@ -236,7 +236,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
         ideas_text = "🎯 *Инвестиционные идеи:*\n\n"
         keyboard_buttons = []
 
-        for i, idea in enumerate(ideas[:7], 1):  # Показываем максимум 7 идей для быстрого ответа
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей для быстрого ответа
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
@@ -379,6 +379,14 @@ async def cmd_analyze_stock(message: Message):
                 potential = ((analysis['target_price'] - current_price) / current_price) * 100
                 potential_emoji = "📈" if potential > 0 else "📉"
                 analysis_text += f"{potential_emoji} *Потенциал:* {potential:+.1f}%\n"
+
+        # Добавляем технические уровни
+        if analysis.get("support_level"):
+            analysis_text += f"🟢 *Поддержка:* {analysis['support_level']:.2f} ₽\n"
+        if analysis.get("resistance_level"):
+            analysis_text += f"🔴 *Сопротивление:* {analysis['resistance_level']:.2f} ₽\n"
+        if analysis.get("trend"):
+            analysis_text += f"📊 *Тренд:* {analysis['trend']}\n"
 
         analysis_text += f"\n{recommendation_emoji}\n"
         analysis_text += f"⚠️ *Риск:* {risk_emoji}\n\n"
@@ -1354,7 +1362,7 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
         ideas_text = "🎯 *Инвестиционные идеи:*\n\n"
         keyboard_buttons = []
 
-        for i, idea in enumerate(ideas[:7], 1):  # Показываем максимум 7 идей для быстрого ответа
+        for i, idea in enumerate(ideas[:5], 1):  # Показываем максимум 5 идей для быстрого ответа
             ticker = idea.get('ticker', 'N/A')
             price = idea.get('price', 0)
             target_price = idea.get('target_price', 0)
