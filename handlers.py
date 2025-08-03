@@ -1318,7 +1318,8 @@ async def show_target_prices(callback: CallbackQuery):
 @router.callback_query(F.data == "get_ideas")
 async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
     """Получить идеи через callback"""
-    await callback.answer("🤖 Анализирую рынок...")
+    await callback.answer()
+    await callback.message.answer("🤖 Анализирую рынок...")
 
     try:
         # Получаем настройки пользователя
