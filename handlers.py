@@ -906,8 +906,13 @@ async def sell_custom_price(callback: CallbackQuery, state: FSMContext):
 
     # Получаем существующие данные и добавляем к ним custom_sell_ticker
     data = await state.get_data()
+    logger.info(f"sell_custom_price - Данные ДО добавления custom_sell_ticker: {data}")
     data['custom_sell_ticker'] = ticker
     await state.update_data(**data)
+
+    # Проверяем, что данные сохранились
+    updated_data = await state.get_data()
+    logger.info(f"sell_custom_price - Данные ПОСЛЕ добавления custom_sell_ticker: {updated_data}")
 
     await state.set_state(InvestmentStates.waiting_for_custom_price)
 
@@ -916,9 +921,11 @@ async def process_custom_sell_price(message: Message, state: FSMContext):
     """Обработка пользовательской цены продажи"""
     try:
         data = await state.get_data()
+        logger.info(f"process_custom_sell_price - Полученные данные состояния: {data}")
 
         # Проверяем, это цена для покупки или продажи
         if 'custom_sell_ticker' in data:
+            logger.info("process_custom_sell_price - Обрабатываем как ПРОДАЖУ")
             # Это продажа
             custom_price = float(message.text.replace(",", "."))
 
@@ -930,7 +937,10 @@ async def process_custom_sell_price(message: Message, state: FSMContext):
             sell_quantity = data.get("sell_quantity")
             avg_price = data.get("avg_price")
 
+            logger.info(f"process_custom_sell_price - ticker: {ticker}, sell_quantity: {sell_quantity}, avg_price: {avg_price}")
+
             if not all([ticker, sell_quantity]):
+                logger.error(f"process_custom_sell_price - Неполные данные: ticker={ticker}, sell_quantity={sell_quantity}")
                 await message.answer("❌ Ошибка: неполные данные для продажи")
                 await state.clear()
                 return
@@ -961,6 +971,8 @@ async def process_custom_sell_price(message: Message, state: FSMContext):
             await state.update_data(sell_price=custom_price, total_amount=total_amount)
 
         else:
+            logger.info("process_custom_sell_price - Обрабатываем как ПОКУПКУ (custom_sell_ticker НЕ найден)")
+            logger.info(f"process_custom_sell_price - Доступные ключи в данных: {list(data.keys())}")
             # Это покупка (существующий код)
             custom_price = float(message.text.replace(",", "."))
 
@@ -969,8 +981,10 @@ async def process_custom_sell_price(message: Message, state: FSMContext):
                 return
 
             selected_idea = data.get("selected_idea")
+            logger.info(f"process_custom_sell_price - selected_idea: {selected_idea}")
 
             if not selected_idea:
+                logger.error("process_custom_sell_price - selected_idea отсутствует, показываем ошибку")
                 await message.answer("❌ Идея не найдена. Начните заново с /ideas")
                 await state.clear()
                 return
