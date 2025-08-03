@@ -261,7 +261,7 @@ async def cmd_ideas(message: Message, state: FSMContext):
             rec_emoji = {'BUY': '🟢', 'HOLD': '🟡', 'SELL': '🔴'}.get(recommendation.upper(), '❔')
             risk_emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(risk_level.lower(), '❔')
 
-            ideas_text += f"\n*{i}.* `{ticker}`\n"
+            ideas_text += f"*{i}.* `{ticker}`\n"
             ideas_text += f"{rec_emoji} *Рекомендация:* {recommendation}\n"
             ideas_text += f"💰 *Текущая цена:* {current_price:.2f} ₽\n"
             ideas_text += f"🎯 *Целевая цена:* {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
@@ -1419,7 +1419,7 @@ async def get_ideas_callback(callback: CallbackQuery, state: FSMContext):
             rec_emoji = {'BUY': '🟢', 'HOLD': '🟡', 'SELL': '🔴'}.get(str(recommendation).upper(), '❔')
             risk_emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(str(risk_level).lower(), '❔')
 
-            ideas_text += f"\n*{i}.* `{ticker}`\n"
+            ideas_text += f"*{i}.* `{ticker}`\n"
             ideas_text += f"{rec_emoji} *Рекомендация:* {recommendation}\n"
             ideas_text += f"💰 *Текущая цена:* {current_price:.2f} ₽\n"
             ideas_text += f"🎯 *Целевая цена:* {target_price:.2f} ₽ (+{potential_return:.1f}%)\n"
