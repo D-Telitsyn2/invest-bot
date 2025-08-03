@@ -16,6 +16,25 @@ from market_data import RealMarketData
 
 logger = logging.getLogger(__name__)
 
+def is_user_work_time(user_timezone: str) -> bool:
+    """
+    Проверяет, находится ли пользователь в рабочем времени (пн-пт 10-18) по его таймзоне
+    """
+    try:
+        tz = pytz.timezone(user_timezone)
+        user_time = datetime.now(tz)
+
+        # Проверяем день недели (0-6, где 0 = понедельник, 6 = воскресенье)
+        is_weekday = user_time.weekday() < 5  # пн-пт
+
+        # Проверяем время (10-18)
+        is_work_hour = 10 <= user_time.hour < 18
+
+        return is_weekday and is_work_hour
+    except Exception as e:
+        logger.error(f"Ошибка проверки рабочего времени для таймзоны {user_timezone}: {e}")
+        return False
+
 class SchedulerService:
     def __init__(self, bot=None):
         self.scheduler = AsyncIOScheduler()
@@ -36,16 +55,12 @@ class SchedulerService:
                 logger.error(f"❌ Ошибка подключения к БД: {e}")
                 logger.error("Планировщик запущен, но уведомления могут не работать")
 
-            # Обновление цен каждые 5 минут в рабочее время
+            # Обновление цен каждые 5 минут (проверяем рабочее время внутри метода)
             self.scheduler.add_job(
-                self.update_market_prices,
-                CronTrigger(
-                    minute="*/5",
-                    hour="10-18",
-                    day_of_week="mon-fri"
-                ),
+                self.update_market_prices_with_timezone,
+                CronTrigger(minute="*/5"),  # Каждые 5 минут, проверяем таймзону внутри
                 id="update_prices",
-                name="Обновление цен акций"
+                name="Обновление цен акций (с учетом таймзон)"
             )
 
             # Ежедневный анализ рынка - проверяем каждый час
@@ -64,16 +79,12 @@ class SchedulerService:
                 name="Еженедельный отчет (с учетом таймзон)"
             )
 
-            # Проверка целевых цен каждые 30 минут в рабочее время
+            # Проверка целевых цен каждые 30 минут (проверяем рабочее время внутри метода)
             self.scheduler.add_job(
-                self.check_target_prices,
-                CronTrigger(
-                    minute="*/30",
-                    hour="10-18",
-                    day_of_week="mon-fri"
-                ),
+                self.check_target_prices_with_timezone,
+                CronTrigger(minute="*/30"),  # Каждые 30 минут, проверяем таймзону внутри
                 id="check_targets",
-                name="Проверка целевых цен"
+                name="Проверка целевых цен (с учетом таймзон)"
             )
 
             self.scheduler.start()
@@ -86,6 +97,69 @@ class SchedulerService:
             self.scheduler.shutdown()
             self.is_running = False
             logger.info("Планировщик задач остановлен")
+
+    async def update_market_prices_with_timezone(self):
+        """Обновление цен акций с учетом таймзоны пользователей"""
+        try:
+            logger.info("⏰ Проверка обновления цен с учетом таймзон...")
+
+            # Получаем всех пользователей с включенными уведомлениями об обновлении цен
+            users = await get_users_with_notification_type('price_updates')
+            if not users:
+                logger.debug("Нет пользователей с включенными обновлениями цен")
+                return
+
+            # Фильтруем пользователей по рабочему времени и общим настройкам
+            active_users = []
+            for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    if user_settings and user_settings.get('notifications', True):
+                        user_timezone = user.get('timezone', 'Europe/Moscow')
+                        if is_user_work_time(user_timezone):
+                            active_users.append(user)
+                            logger.info(f"Пользователь {user['user_id']} в рабочем времени ({user_timezone})")
+                except Exception as e:
+                    logger.error(f"Ошибка проверки пользователя {user['user_id']}: {e}")
+
+            if not active_users:
+                logger.debug("Нет пользователей в рабочем времени для обновления цен")
+                return
+
+            logger.info(f"Найдено {len(active_users)} пользователей в рабочем времени")
+
+            # Собираем уникальные тикеры из всех портфелей активных пользователей
+            unique_tickers = set()
+            user_portfolios = {}
+
+            for user in active_users:
+                portfolio = await get_user_portfolio_for_notifications(user['user_id'])
+                if portfolio:
+                    user_portfolios[user['user_id']] = portfolio
+                    for position in portfolio:
+                        unique_tickers.add(position['ticker'])
+
+            if not unique_tickers:
+                logger.info("Нет тикеров для обновления цен")
+                return
+
+            # Получаем актуальные цены
+            market_data = RealMarketData()
+            try:
+                prices = await market_data.get_multiple_moex_prices(list(unique_tickers))
+                if prices:
+                    # Обновляем цены в базе данных
+                    await update_prices_in_portfolio(prices)
+                    logger.info(f"Обновлены цены для {len(prices)} акций для {len(active_users)} пользователей")
+
+                    # Отправляем уведомления пользователям о значительных изменениях цен
+                    await self._send_price_update_notifications(active_users, user_portfolios, prices)
+
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения цен с рынка: {e}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении цен с учетом таймзон: {e}")
 
     async def update_market_prices(self):
         """Обновление цен акций в рабочее время"""
@@ -453,6 +527,76 @@ class SchedulerService:
             logger.info(f"Удалена задача: {job_id}")
         except Exception as e:
             logger.error(f"Ошибка при удалении задачи {job_id}: {e}")
+
+    async def check_target_prices_with_timezone(self):
+        """Проверка достижения целевых цен с учетом таймзоны пользователей"""
+        try:
+            logger.info("🎯 Проверка целевых цен с учетом таймзон...")
+
+            # Проверяем, есть ли у нас бот для отправки сообщений
+            if not self.bot:
+                logger.error("❌ Бот не инициализирован для отправки уведомлений о целевых ценах")
+                return
+
+            # Получаем пользователей с включенными уведомлениями о целевых ценах
+            try:
+                users = await get_users_with_notification_type('target_price_alerts')
+                logger.info(f"Найдено {len(users)} пользователей с включенными уведомлениями о целевых ценах")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения пользователей для целевых цен: {e}")
+                return
+
+            # Фильтруем пользователей по рабочему времени и общим настройкам
+            active_users = []
+            for user in users:
+                try:
+                    user_settings = await get_user_settings(user['user_id'])
+                    if user_settings and user_settings.get('notifications', True):
+                        user_timezone = user.get('timezone', 'Europe/Moscow')
+                        if is_user_work_time(user_timezone):
+                            active_users.append(user)
+                            logger.info(f"Пользователь {user['user_id']} в рабочем времени ({user_timezone})")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка проверки пользователя {user['user_id']}: {e}")
+
+            if not active_users:
+                logger.debug("⚠️ Нет пользователей в рабочем времени для проверки целевых цен")
+                return
+
+            logger.info(f"Активных пользователей в рабочем времени: {len(active_users)}")
+
+            for user in active_users:
+                try:
+                    # Проверяем достижение целевых цен
+                    achieved_targets = await check_target_prices_achieved(user['user_id'])
+
+                    if not achieved_targets:
+                        continue
+
+                    # Формируем уведомление
+                    message = "🎯 *Целевые цены достигнуты!*\n\n"
+
+                    for target in achieved_targets:
+                        message += f"`{target['ticker']}`\n"
+                        message += f"🎯 Целевая цена: {target['target_price']:.2f} ₽\n"
+                        message += f"💰 Текущая цена: {target['current_price']:.2f} ₽\n"
+                        message += f"📈 Ваша прибыль: {target['unrealized_pnl']:+,.0f} ₽ ({target['return_pct']:+.1f}%)\n\n"
+
+                    message += "_Рассмотрите возможность фиксации прибыли! 💰_"
+
+                    if self.bot:
+                        await self.bot.send_message(
+                            chat_id=user['user_id'],
+                            text=message,
+                            parse_mode="Markdown"
+                        )
+                        logger.info(f"✅ Отправлено уведомление о {len(achieved_targets)} целевых ценах пользователю {user['user_id']}")
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при проверке целевых цен для пользователя {user['user_id']}: {e}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при проверке целевых цен с учетом таймзон: {e}")
 
     def list_jobs(self):
         """Список всех задач"""
