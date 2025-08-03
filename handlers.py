@@ -849,68 +849,6 @@ async def sell_stock_selection(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-@router.callback_query(F.data.startswith("sell_"))
-async def process_sell_stock(callback: CallbackQuery, state: FSMContext):
-    """Обработка продажи конкретной акции"""
-    if callback.data == "sell_stock":
-        await sell_stock_selection(callback, state)
-        return
-
-    ticker = callback.data.replace("sell_", "")
-
-    try:
-        # Получаем информацию о позиции
-        portfolio = await get_user_portfolio(callback.from_user.id)
-        position = next((p for p in portfolio if p['ticker'] == ticker), None)
-
-        if not position:
-            await callback.message.answer(f"❌ Акция {ticker} не найдена в портфеле")
-            await callback.answer()
-            return
-
-        # Получаем текущую цену
-        from market_data import market_data
-        current_price = await market_data.get_moex_price(ticker)
-        if not current_price:
-            current_price = position.get('current_price', position['avg_price'])
-
-        quantity = position['quantity']
-        avg_price = position['avg_price']
-        current_value = quantity * current_price
-        invested_value = quantity * avg_price
-        profit_loss = current_value - invested_value
-
-        confirmation_text = f"""
-🗑️ *Продажа акций {ticker}*
-
-📊 В портфеле: *{quantity} шт.*
-💰 Средняя цена покупки: *{avg_price:.2f} ₽*
-💱 Текущая цена: *{current_price:.2f} ₽*
-💎 Стоимость позиции: *{current_value:.2f} ₽*
-📈 P&L: *{profit_loss:+.2f} ₽*
-
-Выберите способ указания цены:
-        """
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📊 По текущей цене", callback_data=f"sell_auto_{ticker}"),
-                InlineKeyboardButton(text="✏️ Своя цена", callback_data=f"sell_custom_{ticker}")
-            ],
-            [
-                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
-            ]
-        ])
-
-        await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
-        await state.update_data(sell_ticker=ticker, current_price=current_price, sell_quantity=quantity, avg_price=avg_price)
-
-    except Exception as e:
-        logger.error(f"Ошибка при обработке продажи {ticker}: {e}")
-        await callback.message.answer("❌ Ошибка при обработке продажи")
-
-    await callback.answer()
-
 @router.callback_query(F.data.startswith("sell_auto_"))
 async def confirm_sell_auto_price(callback: CallbackQuery, state: FSMContext):
     """Продажа по текущей цене"""
@@ -1099,6 +1037,74 @@ async def cancel_sell(callback: CallbackQuery, state: FSMContext):
     """Отмена продажи"""
     await callback.message.answer("❌ Продажа отменена")
     await state.clear()
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("sell_"))
+async def process_sell_stock(callback: CallbackQuery, state: FSMContext):
+    """Обработка продажи конкретной акции"""
+    if callback.data == "sell_stock":
+        await sell_stock_selection(callback, state)
+        return
+
+    # Проверяем, что это не callback для auto, custom или final продажи
+    if (callback.data.startswith("sell_auto_") or
+        callback.data.startswith("sell_custom_") or
+        callback.data.startswith("final_sell_")):
+        return  # Эти callback обрабатываются другими функциями
+
+    ticker = callback.data.replace("sell_", "")
+
+    try:
+        # Получаем информацию о позиции
+        portfolio = await get_user_portfolio(callback.from_user.id)
+        position = next((p for p in portfolio if p['ticker'] == ticker), None)
+
+        if not position:
+            await callback.message.answer(f"❌ Акция {ticker} не найдена в портфеле")
+            await callback.answer()
+            return
+
+        # Получаем текущую цену
+        from market_data import market_data
+        current_price = await market_data.get_moex_price(ticker)
+        if not current_price:
+            current_price = position.get('current_price', position['avg_price'])
+
+        quantity = position['quantity']
+        avg_price = position['avg_price']
+        current_value = quantity * current_price
+        invested_value = quantity * avg_price
+        profit_loss = current_value - invested_value
+
+        confirmation_text = f"""
+🗑️ *Продажа акций {ticker}*
+
+📊 В портфеле: *{quantity} шт.*
+💰 Средняя цена покупки: *{avg_price:.2f} ₽*
+💱 Текущая цена: *{current_price:.2f} ₽*
+💎 Стоимость позиции: *{current_value:.2f} ₽*
+📈 P&L: *{profit_loss:+.2f} ₽*
+
+Выберите способ указания цены:
+        """
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 По текущей цене", callback_data=f"sell_auto_{ticker}"),
+                InlineKeyboardButton(text="✏️ Своя цена", callback_data=f"sell_custom_{ticker}")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
+            ]
+        ])
+
+        await callback.message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+        await state.update_data(sell_ticker=ticker, current_price=current_price, sell_quantity=quantity, avg_price=avg_price)
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке продажи {ticker}: {e}")
+        await callback.message.answer("❌ Ошибка при обработке продажи")
+
     await callback.answer()
 
 @router.callback_query(F.data == "cancel_trade")
