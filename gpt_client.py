@@ -16,7 +16,6 @@ class XAIClient:
         self.api_key = os.getenv('XAI_API_KEY')
         self.base_url = "https://api.x.ai/v1/chat/completions"
         self.models = [
-            "grok-4-0709",
             "grok-3",
             "grok-3-mini",
             "grok-3-mini-fast",
