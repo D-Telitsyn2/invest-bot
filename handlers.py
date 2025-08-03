@@ -1108,24 +1108,23 @@ async def cmd_history(message: Message):
             await message.answer("📊 История операций пуста")
             return
 
-        # Используем таблицу для экономии места
-        history_text = "📊 *История операций:*\n\n"
-        history_text += "`Дата | Время | Тип | Тикер | Кол-во | Цена`\n"
-        history_text += "`────────────────────────────────────────────────`\n"
+        # Заголовок и начало таблицы
+        header = "📊 <b>История операций:</b>\n<pre>"
+        table = "Дата  | Время | Тип  | Тикер | Кол-во |  Цена \n"
+        table += "────────────────────────────────────────\n"
 
         for order in history[-15:]:  # Последние 15 операций
             # Форматируем дату и время
             created_at = order.get('created_at')
             if created_at:
                 if isinstance(created_at, str):
-                    # Парсим ISO формат
                     try:
                         from datetime import datetime
                         dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         date_str = dt.strftime('%d.%m')
                         time_str = dt.strftime('%H:%M')
                     except:
-                        date_str = created_at.split('T')[0][-5:]  # MM-DD
+                        date_str = created_at.split('T')[0][-5:]
                         time_str = created_at.split('T')[1][:5] if 'T' in created_at else '     '
                 else:
                     date_str = created_at.strftime('%d.%m')
@@ -1134,28 +1133,29 @@ async def cmd_history(message: Message):
                 date_str = "  .  "
                 time_str = "  :  "
 
-            # Определяем тип операции
+            # Тип операции
             operation_type = order.get('operation_type', '').upper()
             if operation_type == 'BUY':
-                op_type = " BUY"
+                op_type = "BUY"
             elif operation_type == 'SELL':
                 op_type = "SELL"
             else:
-                op_type = "    "
+                op_type = "   "
 
-            ticker = order['ticker'][:5].ljust(5)  # Обрезаем до 5 символов
-            quantity = f"{order['quantity']:>4}"
-            price = f"{order['price']:>7.1f}"
+            ticker = order.get('ticker', '')[:5].ljust(5)
+            quantity = f"{order.get('quantity', 0):>6}"
+            price = f"{order.get('price', 0):>6.1f}"
 
-            history_text += f"`{date_str} | {time_str} | {op_type} | {ticker} | {quantity} | {price}`\n"
+            table += f"{date_str:<5} | {time_str:<5} | {op_type:<4} | {ticker:<5} | {quantity} | {price}\n"
 
-        history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
+        table += "</pre>\n\n💡 <i>Легенда:</i> BUY = Покупка, SELL = Продажа"
 
-        await message.answer(f"<pre>{history_text}</pre>", parse_mode="HTML")
+        await message.answer(header + table, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка при получении истории: {e}")
         await message.answer("❌ Ошибка при получении истории операций")
+
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
@@ -1521,24 +1521,22 @@ async def show_history_callback(callback: CallbackQuery):
             await callback.message.edit_text("📊 История операций пуста", reply_markup=keyboard)
             return
 
-        # Используем таблицу для экономии места
-        history_text = "📊 *История операций:*\n\n"
-        history_text += "`Дата | Время | Тип | Тикер | Кол-во | Цена`\n"
-        history_text += "`────────────────────────────────────────────────`\n"
+        # Заголовок и начало таблицы
+        header = "📊 <b>История операций:</b>\n<pre>"
+        table = "Дата  | Время | Тип  | Тикер | Кол-во |  Цена \n"
+        table += "────────────────────────────────────────\n"
 
-        for order in history[-15:]:  # Последние 15 операций
-            # Форматируем дату и время
+        for order in history[-15:]:
             created_at = order.get('created_at')
             if created_at:
                 if isinstance(created_at, str):
-                    # Парсим ISO формат
                     try:
                         from datetime import datetime
                         dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         date_str = dt.strftime('%d.%m')
                         time_str = dt.strftime('%H:%M')
                     except:
-                        date_str = created_at.split('T')[0][-5:]  # MM-DD
+                        date_str = created_at.split('T')[0][-5:]
                         time_str = created_at.split('T')[1][:5] if 'T' in created_at else '     '
                 else:
                     date_str = created_at.strftime('%d.%m')
@@ -1547,29 +1545,28 @@ async def show_history_callback(callback: CallbackQuery):
                 date_str = "  .  "
                 time_str = "  :  "
 
-            # Определяем тип операции
             operation_type = order.get('operation_type', '').upper()
             if operation_type == 'BUY':
-                op_type = " BUY"
+                op_type = "BUY"
             elif operation_type == 'SELL':
                 op_type = "SELL"
             else:
-                op_type = "    "
+                op_type = "   "
 
-            ticker = order['ticker'][:5].ljust(5)  # Обрезаем до 5 символов
-            quantity = f"{order['quantity']:>4}"
-            price = f"{order['price']:>7.1f}"
+            ticker = order.get('ticker', '')[:5].ljust(5)
+            quantity = f"{order.get('quantity', 0):>6}"
+            price = f"{order.get('price', 0):>6.1f}"
 
-            history_text += f"`{date_str} | {time_str} | {op_type} | {ticker} | {quantity} | {price}`\n"
+            table += f"{date_str:<5} | {time_str:<5} | {op_type:<4} | {ticker:<5} | {quantity} | {price}\n"
 
-        history_text += "\n💡 *Легенда:* BUY = Покупка, SELL = Продажа"
+        table += "</pre>\n\n💡 <i>Легенда:</i> BUY = Покупка, SELL = Продажа"
 
-        # Добавляем кнопку возврата в меню
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")]
         ])
 
-        await callback.message.edit_text(f"<pre>{history_text}</pre>", parse_mode="HTML", reply_markup=keyboard)
+        await callback.message.edit_text(header + table, parse_mode="HTML", reply_markup=keyboard)
+
     except Exception as e:
         logger.error(f"Ошибка при получении истории через callback: {e}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
