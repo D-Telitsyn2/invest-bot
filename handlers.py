@@ -683,28 +683,76 @@ async def use_custom_price(callback: CallbackQuery, state: FSMContext):
 
 @router.message(InvestmentStates.waiting_for_custom_price)
 async def process_custom_price(message: Message, state: FSMContext):
-    """Обработка пользовательской цены"""
+    """Обработка пользовательской цены для покупки и продажи"""
     try:
+        data = await state.get_data()
+        logger.info(f"process_custom_price - Полученные данные состояния: {data}")
+
         custom_price = float(message.text.replace(",", "."))
 
         if custom_price <= 0:
             await message.answer("❌ Цена должна быть больше 0")
             return
 
-        data = await state.get_data()
-        selected_idea = data.get("selected_idea")
+        # Проверяем, это цена для покупки или продажи
+        if 'custom_sell_ticker' in data:
+            logger.info("process_custom_price - Обрабатываем как ПРОДАЖУ")
+            # Это продажа
+            ticker = data.get("custom_sell_ticker")
+            sell_quantity = data.get("sell_quantity")
+            avg_price = data.get("avg_price")
 
-        if not selected_idea:
-            await message.answer("❌ Идея не найдена. Начните заново с /ideas")
-            await state.clear()
-            return
+            logger.info(f"process_custom_price - ticker: {ticker}, sell_quantity: {sell_quantity}, avg_price: {avg_price}")
 
-        # Обновляем цену в идее
-        selected_idea['price'] = custom_price
-        await state.update_data(selected_idea=selected_idea)
+            if not all([ticker, sell_quantity]):
+                logger.error(f"process_custom_price - Неполные данные: ticker={ticker}, sell_quantity={sell_quantity}")
+                await message.answer("❌ Ошибка: неполные данные для продажи")
+                await state.clear()
+                return
 
-        await message.answer(f"✅ Цена установлена: {custom_price:.2f} ₽\n\n💰 Теперь укажите сумму для инвестирования (в рублях):")
-        await state.set_state(InvestmentStates.waiting_for_amount)
+            total_amount = sell_quantity * custom_price
+            profit_loss = (custom_price - avg_price) * sell_quantity
+
+            confirmation_text = f"""
+✅ *Подтверждение продажи:*
+
+📉 Продать: `{ticker}`
+🔢 Количество: *{sell_quantity} шт.*
+💰 Цена продажи: *{custom_price:.2f} ₽*
+💎 Получите: *{total_amount:.2f} ₽*
+📈 P&L: *{profit_loss:+.2f} ₽*
+
+Подтвердить продажу?
+            """
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Продать", callback_data=f"final_sell_{ticker}"),
+                    InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
+                ]
+            ])
+
+            await message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
+            await state.update_data(sell_price=custom_price, total_amount=total_amount)
+
+        else:
+            logger.info("process_custom_price - Обрабатываем как ПОКУПКУ")
+            # Это покупка (существующий код)
+            selected_idea = data.get("selected_idea")
+            logger.info(f"process_custom_price - selected_idea: {selected_idea}")
+
+            if not selected_idea:
+                logger.error("process_custom_price - selected_idea отсутствует, показываем ошибку")
+                await message.answer("❌ Идея не найдена. Начните заново с /ideas")
+                await state.clear()
+                return
+
+            # Обновляем цену в идее
+            selected_idea['price'] = custom_price
+            await state.update_data(selected_idea=selected_idea)
+
+            await message.answer(f"✅ Цена установлена: {custom_price:.2f} ₽\n\n💰 Теперь укажите сумму для инвестирования (в рублях):")
+            await state.set_state(InvestmentStates.waiting_for_amount)
 
     except ValueError:
         await message.answer("❌ Некорректная цена. Введите число (например: 250.50)")
@@ -915,89 +963,6 @@ async def sell_custom_price(callback: CallbackQuery, state: FSMContext):
     logger.info(f"sell_custom_price - Данные ПОСЛЕ добавления custom_sell_ticker: {updated_data}")
 
     await state.set_state(InvestmentStates.waiting_for_custom_price)
-
-@router.message(InvestmentStates.waiting_for_custom_price)
-async def process_custom_sell_price(message: Message, state: FSMContext):
-    """Обработка пользовательской цены продажи"""
-    try:
-        data = await state.get_data()
-        logger.info(f"process_custom_sell_price - Полученные данные состояния: {data}")
-
-        # Проверяем, это цена для покупки или продажи
-        if 'custom_sell_ticker' in data:
-            logger.info("process_custom_sell_price - Обрабатываем как ПРОДАЖУ")
-            # Это продажа
-            custom_price = float(message.text.replace(",", "."))
-
-            if custom_price <= 0:
-                await message.answer("❌ Цена должна быть больше 0")
-                return
-
-            ticker = data.get("custom_sell_ticker")
-            sell_quantity = data.get("sell_quantity")
-            avg_price = data.get("avg_price")
-
-            logger.info(f"process_custom_sell_price - ticker: {ticker}, sell_quantity: {sell_quantity}, avg_price: {avg_price}")
-
-            if not all([ticker, sell_quantity]):
-                logger.error(f"process_custom_sell_price - Неполные данные: ticker={ticker}, sell_quantity={sell_quantity}")
-                await message.answer("❌ Ошибка: неполные данные для продажи")
-                await state.clear()
-                return
-
-            total_amount = sell_quantity * custom_price
-            profit_loss = (custom_price - avg_price) * sell_quantity
-
-            confirmation_text = f"""
-✅ *Подтверждение продажи:*
-
-📉 Продать: `{ticker}`
-🔢 Количество: *{sell_quantity} шт.*
-💰 Цена продажи: *{custom_price:.2f} ₽*
-💎 Получите: *{total_amount:.2f} ₽*
-📈 P&L: *{profit_loss:+.2f} ₽*
-
-Подтвердить продажу?
-            """
-
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Продать", callback_data=f"final_sell_{ticker}"),
-                    InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sell")
-                ]
-            ])
-
-            await message.answer(confirmation_text, reply_markup=keyboard, parse_mode="Markdown")
-            await state.update_data(sell_price=custom_price, total_amount=total_amount)
-
-        else:
-            logger.info("process_custom_sell_price - Обрабатываем как ПОКУПКУ (custom_sell_ticker НЕ найден)")
-            logger.info(f"process_custom_sell_price - Доступные ключи в данных: {list(data.keys())}")
-            # Это покупка (существующий код)
-            custom_price = float(message.text.replace(",", "."))
-
-            if custom_price <= 0:
-                await message.answer("❌ Цена должна быть больше 0")
-                return
-
-            selected_idea = data.get("selected_idea")
-            logger.info(f"process_custom_sell_price - selected_idea: {selected_idea}")
-
-            if not selected_idea:
-                logger.error("process_custom_sell_price - selected_idea отсутствует, показываем ошибку")
-                await message.answer("❌ Идея не найдена. Начните заново с /ideas")
-                await state.clear()
-                return
-
-            # Обновляем цену в идее
-            selected_idea['price'] = custom_price
-            await state.update_data(selected_idea=selected_idea)
-
-            await message.answer(f"✅ Цена установлена: {custom_price:.2f} ₽\n\n💰 Теперь укажите сумму для инвестирования (в рублях):")
-            await state.set_state(InvestmentStates.waiting_for_amount)
-
-    except ValueError:
-        await message.answer("❌ Некорректная цена. Введите число (например: 250.50)")
 
 @router.callback_query(F.data.startswith("final_sell_"))
 async def final_sell_confirmation(callback: CallbackQuery, state: FSMContext):
