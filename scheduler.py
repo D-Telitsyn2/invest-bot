@@ -55,14 +55,6 @@ class SchedulerService:
                 logger.error(f"❌ Ошибка подключения к БД: {e}")
                 logger.error("Планировщик запущен, но уведомления могут не работать")
 
-            # Обновление цен каждые 5 минут (проверяем рабочее время внутри метода)
-            self.scheduler.add_job(
-                self.update_market_prices_with_timezone,
-                CronTrigger(minute="*/5"),  # Каждые 5 минут, проверяем таймзону внутри
-                id="update_prices",
-                name="Обновление цен акций (с учетом таймзон)"
-            )
-
             # Ежедневный анализ рынка - проверяем каждый час
             self.scheduler.add_job(
                 self.daily_market_analysis_with_timezone,
@@ -79,10 +71,10 @@ class SchedulerService:
                 name="Еженедельный отчет (с учетом таймзон)"
             )
 
-            # Проверка целевых цен каждые 30 минут (проверяем рабочее время внутри метода)
+            # Проверка целевых цен каждый час (проверяем рабочее время внутри метода)
             self.scheduler.add_job(
                 self.check_target_prices_with_timezone,
-                CronTrigger(minute="*/30"),  # Каждые 30 минут, проверяем таймзону внутри
+                CronTrigger(minute=0),  # Каждый час, проверяем таймзону внутри
                 id="check_targets",
                 name="Проверка целевых цен (с учетом таймзон)"
             )
@@ -98,183 +90,12 @@ class SchedulerService:
             self.is_running = False
             logger.info("Планировщик задач остановлен")
 
-    async def update_market_prices_with_timezone(self):
-        """Обновление цен акций с учетом таймзоны пользователей"""
-        try:
-            logger.info("⏰ Проверка обновления цен с учетом таймзон...")
+    def list_jobs(self):
+        """Список всех задач"""
+        jobs = self.scheduler.get_jobs()
+        return [{"id": job.id, "name": job.name, "next_run": job.next_run_time} for job in jobs]
 
-            # Получаем всех пользователей с включенными уведомлениями об обновлении цен
-            users = await get_users_with_notification_type('price_updates')
-            if not users:
-                logger.debug("Нет пользователей с включенными обновлениями цен")
-                return
-
-            # Фильтруем пользователей по рабочему времени и общим настройкам
-            active_users = []
-            for user in users:
-                try:
-                    user_settings = await get_user_settings(user['user_id'])
-                    if user_settings and user_settings.get('notifications', True):
-                        user_timezone = user.get('timezone', 'Europe/Moscow')
-                        if is_user_work_time(user_timezone):
-                            active_users.append(user)
-                            logger.info(f"Пользователь {user['user_id']} в рабочем времени ({user_timezone})")
-                except Exception as e:
-                    logger.error(f"Ошибка проверки пользователя {user['user_id']}: {e}")
-
-            if not active_users:
-                logger.debug("Нет пользователей в рабочем времени для обновления цен")
-                return
-
-            logger.info(f"Найдено {len(active_users)} пользователей в рабочем времени")
-
-            # Собираем уникальные тикеры из всех портфелей активных пользователей
-            unique_tickers = set()
-            user_portfolios = {}
-
-            for user in active_users:
-                portfolio = await get_user_portfolio_for_notifications(user['user_id'])
-                if portfolio:
-                    user_portfolios[user['user_id']] = portfolio
-                    for position in portfolio:
-                        unique_tickers.add(position['ticker'])
-
-            if not unique_tickers:
-                logger.info("Нет тикеров для обновления цен")
-                return
-
-            # Получаем актуальные цены
-            market_data = RealMarketData()
-            try:
-                prices = await market_data.get_multiple_moex_prices(list(unique_tickers))
-                if prices:
-                    # Обновляем цены в базе данных
-                    await update_prices_in_portfolio(prices)
-                    logger.info(f"Обновлены цены для {len(prices)} акций для {len(active_users)} пользователей")
-
-                    # Отправляем уведомления пользователям о значительных изменениях цен
-                    await self._send_price_update_notifications(active_users, user_portfolios, prices)
-
-            except Exception as e:
-                logger.error(f"❌ Ошибка получения цен с рынка: {e}")
-
-        except Exception as e:
-            logger.error(f"❌ Ошибка при обновлении цен с учетом таймзон: {e}")
-
-    async def update_market_prices(self):
-        """Обновление цен акций в рабочее время"""
-        try:
-            logger.info("⏰ Обновление цен акций...")
-
-            # Получаем всех пользователей с включенными уведомлениями об обновлении цен
-            users = await get_users_with_notification_type('price_updates')
-            if not users:
-                logger.info("Нет пользователей с включенными обновлениями цен")
-                return
-
-            # Фильтруем пользователей с включенными общими уведомлениями
-            active_users = []
-            for user in users:
-                try:
-                    user_settings = await get_user_settings(user['user_id'])
-                    if user_settings and user_settings.get('notifications', True):
-                        active_users.append(user)
-                except Exception as e:
-                    logger.error(f"Ошибка получения настроек пользователя {user['user_id']}: {e}")
-
-            if not active_users:
-                logger.info("Нет активных пользователей для обновления цен")
-                return
-
-            # Собираем уникальные тикеры из всех портфелей активных пользователей
-            unique_tickers = set()
-            user_portfolios = {}
-
-            for user in active_users:
-                portfolio = await get_user_portfolio_for_notifications(user['user_id'])
-                if portfolio:
-                    user_portfolios[user['user_id']] = portfolio
-                    for position in portfolio:
-                        unique_tickers.add(position['ticker'])
-
-            if not unique_tickers:
-                logger.info("Нет тикеров для обновления цен")
-                return
-
-            # Получаем актуальные цены
-            market_data = RealMarketData()
-            try:
-                prices = await market_data.get_multiple_moex_prices(list(unique_tickers))
-                if prices:
-                    # Обновляем цены в базе данных
-                    await update_prices_in_portfolio(prices)
-                    logger.info(f"Обновлены цены для {len(prices)} акций")
-
-                    # Отправляем уведомления пользователям о значительных изменениях цен
-                    await self._send_price_update_notifications(active_users, user_portfolios, prices)
-
-            finally:
-                await market_data.close_session()
-
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении цен: {e}")
-
-    async def _send_price_update_notifications(self, users, user_portfolios, new_prices):
-        """Отправляет уведомления о значительных изменениях цен"""
-        if not self.bot:
-            return
-
-        for user in users:
-            try:
-                portfolio = user_portfolios.get(user['user_id'], [])
-                if not portfolio:
-                    continue
-
-                significant_changes = []
-
-                for position in portfolio:
-                    ticker = position['ticker']
-                    old_price = position.get('current_price', position['avg_price'])
-                    new_price = new_prices.get(ticker)
-
-                    if new_price and old_price:
-                        change_percent = ((new_price - old_price) / old_price) * 100
-
-                        # Уведомляем о изменениях больше 3%
-                        if abs(change_percent) >= 3:
-                            significant_changes.append({
-                                'ticker': ticker,
-                                'old_price': old_price,
-                                'new_price': new_price,
-                                'change_percent': change_percent,
-                                'quantity': position['quantity']
-                            })
-
-                if significant_changes:
-                    message = "📈 *Значительные изменения цен в вашем портфеле:*\n\n"
-
-                    for change in significant_changes:
-                        emoji = "📈" if change['change_percent'] > 0 else "📉"
-                        message += f"{emoji} `{change['ticker']}`\n"
-                        message += f"💰 {change['old_price']:.2f} ₽ → {change['new_price']:.2f} ₽\n"
-                        message += f"📊 Изменение: {change['change_percent']:+.1f}%\n"
-
-                        position_change = (change['new_price'] - change['old_price']) * change['quantity']
-                        message += f"💼 Ваша позиция: {position_change:+,.0f} ₽\n\n"
-
-                    await self.bot.send_message(
-                        chat_id=user['user_id'],
-                        text=message,
-                        parse_mode="Markdown"
-                    )
-
-                    # Небольшая пауза между отправками
-                    await asyncio.sleep(0.1)
-
-            except Exception as e:
-                logger.error(f"Ошибка при отправке уведомления об изменении цен пользователю {user['user_id']}: {e}")
-
-    async def daily_market_analysis(self):
+    async def check_target_prices_with_timezone(self):
         """Ежедневный анализ рынка"""
         try:
             logger.info("📊 Ежедневный анализ рынка...")

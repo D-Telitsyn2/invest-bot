@@ -538,10 +538,8 @@ async def show_notification_settings(callback: CallbackQuery):
 📊 *Общие уведомления:* {'✅' if settings.get('notifications', True) else '❌'}
 
 *Детальные настройки:*
-🌅 *Ежедневная сводка* (9:00): {'✅' if settings.get('daily_market_analysis', True) else '❌'}
-📊 *Еженедельный отчет* (вс 20:00): {'✅' if settings.get('weekly_portfolio_report', True) else '❌'}
-🎯 *Целевые цены* (каждые 30 мин, пн-пт 10-18): {'✅' if settings.get('target_price_alerts', True) else '❌'}
-⏰ *Обновления цен* (каждые 5 мин, пн-пт 10-18): {'✅' if settings.get('price_updates', False) else '❌'}
+🌅 *Ежедневная сводка* (9:00 по вашей таймзоне): {'✅' if settings.get('daily_market_analysis', True) else '❌'}
+📊 *Еженедельный отчет* (вс 20:00 по вашей таймзоне): {'✅' if settings.get('weekly_portfolio_report', True) else '❌'}
         """
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -559,16 +557,6 @@ async def show_notification_settings(callback: CallbackQuery):
                 InlineKeyboardButton(
                     text="📊 Еженедельный отчет",
                     callback_data="toggle_weekly_report"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🎯 Целевые цены",
-                    callback_data="toggle_target_alerts"
-                ),
-                InlineKeyboardButton(
-                    text="⏰ Обновления цен",
-                    callback_data="toggle_price_updates"
                 )
             ],
             [
@@ -622,45 +610,6 @@ async def toggle_weekly_report(callback: CallbackQuery):
 
     except Exception as e:
         logger.error(f"Ошибка toggle_weekly_report: {e}")
-        await callback.answer("❌ Ошибка при изменении настройки")
-
-@router.callback_query(F.data == "toggle_target_alerts")
-async def toggle_target_alerts(callback: CallbackQuery):
-    """Переключение уведомлений о целевых ценах"""
-    try:
-        settings = await get_user_settings(callback.from_user.id)
-        if not settings:
-            settings = {'target_price_alerts': True}
-        new_value = not settings.get('target_price_alerts', True)
-
-        await update_user_settings(callback.from_user.id, target_price_alerts=new_value)
-        logger.info(f"Пользователь {callback.from_user.id}: целевые цены -> {new_value}")
-
-        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
-        await show_notification_settings(callback)
-
-    except Exception as e:
-        logger.error(f"Ошибка toggle_target_alerts: {e}")
-        await callback.answer("❌ Ошибка при изменении настройки")
-
-@router.callback_query(F.data == "toggle_price_updates")
-async def toggle_price_updates(callback: CallbackQuery):
-    """Переключение обновлений цен"""
-    try:
-        settings = await get_user_settings(callback.from_user.id)
-        if not settings:
-            settings = {'price_updates': False}
-
-        new_value = not settings.get('price_updates', False)
-
-        await update_user_settings(callback.from_user.id, price_updates=new_value)
-        logger.info(f"Пользователь {callback.from_user.id}: обновления цен -> {new_value}")
-
-        # Возвращаемся к настройкам уведомлений без дополнительного сообщения
-        await show_notification_settings(callback)
-
-    except Exception as e:
-        logger.error(f"Ошибка toggle_price_updates: {e}")
         await callback.answer("❌ Ошибка при изменении настройки")
 
 def register_handlers(dp):
@@ -2092,7 +2041,7 @@ async def force_daily_analysis(message: Message):
         from scheduler import scheduler_service
 
         # Запускаем ежедневный анализ принудительно
-        await scheduler_service.daily_market_analysis()
+        await scheduler_service.daily_market_analysis_with_timezone()
 
         await message.answer("✅ Ежедневный анализ выполнен! Проверьте логи для деталей.")
 
@@ -2134,15 +2083,11 @@ async def force_target_check(message: Message):
 async def force_price_update(message: Message):
     """Принудительное обновление цен для отладки"""
     try:
-        await message.answer("🔧 Принудительное обновление цен...")
-
-        from scheduler import scheduler_service
-        await scheduler_service.update_market_prices()
-
-        await message.answer("✅ Обновление цен выполнено!")
+        await message.answer("🔧 Принудительное обновление цен отключено...")
+        await message.answer("ℹ️ Обновления цен каждые 5 минут были удалены из планировщика.")
 
     except Exception as e:
-        logger.error(f"Ошибка при принудительном обновлении цен: {e}")
+        logger.error(f"Ошибка: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
 @router.message(Command("debug_test"))
